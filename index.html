@@ -7957,28 +7957,24 @@ window.toggleUsersSection = function(){
     <div class="tg-pane active" id="tgPaneTg">
       <div class="tg-step active" id="tgStep1">
         <div class="tg-label" style="text-align:center">Telegram orqali tezkor kirish</div>
-        <button class="tg-btn tg-btn-tg" id="tgGoCodeBtn">
-          <i class="fab fa-telegram-plane"></i> TELEGRAM ORQALI KIRISH
-        </button>
-        <div class="tg-hint">Tugmani bosing — bot <b>avtomatik /start</b> qabul qiladi va <b>6 xonali kod</b> yuboradi.</div>
-      </div>
 
-      <div class="tg-step" id="tgStep2">
-        <div class="tg-label" style="text-align:center">Botdan olingan kodni kiriting</div>
-        <input type="tel" inputmode="numeric" class="tg-input-code" id="tgCodeInput" maxlength="6" placeholder="••••••" autocomplete="off">
-        <div class="tg-error" id="tgCodeErr"></div>
-        <div class="tg-success" id="tgCodeOk"></div>
-        <button class="tg-btn tg-btn-tg" id="tgGetCodeBtn">
-          <i class="fab fa-telegram-plane"></i> KODNI OLISH
-          <span class="tg-loader"></span>
-        </button>
-        <button class="tg-btn tg-btn-accent" id="tgConfirmCodeBtn">
-          <i class="fas fa-check-circle"></i> TASDIQLASH VA KIRISH
-        </button>
-        <button class="tg-btn tg-btn-ghost" id="tgBackBtn">
-          <i class="fas fa-arrow-left"></i> Orqaga
-        </button>
-        <div class="tg-hint">⏱ Kod <b>10 daqiqa</b> amal qiladi.<br>📲 Botdan kelgan 6 raqamni kiriting.</div>
+        <!-- Telegram Login Widget -->
+        <div id="tgWidgetWrap" style="display:flex;justify-content:center;margin:18px 0 10px;">
+          <script async src="https://telegram.org/js/telegram-widget.js?22"
+            data-telegram-login="Goldkcinobot"
+            data-size="large"
+            data-radius="12"
+            data-onauth="onTelegramAuth(user)"
+            data-request-access="write">
+          </script>
+        </div>
+
+        <div class="tg-hint">
+          Tugmani bosing — Telegram ilovasi ochiladi va<br>
+          <b>"Saytga kirishga ruxsat berasizmi?"</b> deb so'raydi.<br>
+          <b>Tasdiqlang</b> — avtomatik kirasiz! 🚀
+        </div>
+        <div class="tg-error" id="tgWidgetErr"></div>
       </div>
     </div>
 
@@ -8004,14 +8000,13 @@ window.toggleUsersSection = function(){
 </div>
 
 <script id="tgAuthScriptV2">
+/* ============================================================
+   TELEGRAM LOGIN WIDGET  +  GMAIL FLOW
+   ============================================================ */
 (function(){
-  const BOT_URL = 'https://t.me/Goldkcinobot?start=login';
   function $(id){return document.getElementById(id);}
 
-  function hideOldOverlay(){
-    const old = document.getElementById('loginOverlay');
-    if(old){ old.style.display='none'; old.setAttribute('data-disabled','1'); }
-  }
+  /* ---------- yordamchi funksiyalar ---------- */
   function isLoggedIn(){
     try{ const u=JSON.parse(localStorage.getItem('kdp_local_user')||'null'); return !!(u&&u.id); }
     catch(e){return false;}
@@ -8021,122 +8016,101 @@ window.toggleUsersSection = function(){
     const id = extra.id || (method+'_'+Math.random().toString(36).slice(2,10));
     const user = Object.assign({
       id:id,
-      first_name: extra.name || 'Foydalanuvchi',
-      username: extra.username || ('user_'+id.slice(-4)),
-      photo_url:'',
-      auth_method:method,
-      logged_at:Date.now()
+      first_name: extra.first_name || extra.name || 'Foydalanuvchi',
+      username: extra.username || ('user_'+id.toString().slice(-4)),
+      photo_url: extra.photo_url || '',
+      auth_method: method,
+      logged_at: Date.now()
     }, extra);
     localStorage.setItem('kdp_local_user', JSON.stringify(user));
     try{
       const accs = JSON.parse(localStorage.getItem('kdp_accounts')||'[]');
       if(!accs.find(a=>a.id===user.id)){
-        accs.push({id:user.id,name:user.first_name,email:user.email||user.username+'@'+method,created:Date.now(),method:method});
-        localStorage.setItem('kdp_accounts',JSON.stringify(accs));
+        accs.push({id:user.id, name:user.first_name, email:user.email||user.username+'@'+method, created:Date.now(), method:method});
+        localStorage.setItem('kdp_accounts', JSON.stringify(accs));
       }
     }catch(e){}
   }
 
-  function setStep(n){
-    document.querySelectorAll('#tgPaneTg .tg-step').forEach(s=>s.classList.remove('active'));
-    $('tgStep'+n).classList.add('active');
-  }
+  /* ---------- Telegram Widget callback (global) ---------- */
+  window.onTelegramAuth = function(tgUser){
+    /*
+      tgUser ob'ekti: { id, first_name, last_name, username, photo_url, auth_date, hash }
+      Bu ma'lumotlar Telegram tomonidan imzolangan — foydalanuvchi
+      o'z Telegram ilovasida "Ruxsat berish" tugmasini bosganidan keyin keladi.
+    */
+    loginUser('telegram', {
+      id:        'tg_' + tgUser.id,
+      first_name: tgUser.first_name || 'Foydalanuvchi',
+      last_name:  tgUser.last_name  || '',
+      username:   tgUser.username   || ('tg_user_'+tgUser.id),
+      photo_url:  tgUser.photo_url  || '',
+      tg_id:      tgUser.id
+    });
 
-  function init(){
-    hideOldOverlay();
+    /* Qisqa muddatli muvaffaqiyat xabari ko'rsatib, sahifani yangilaymiz */
     const overlay = $('tgLoginOverlay');
+    const wrap    = $('tgWidgetWrap');
+    if(wrap){
+      wrap.innerHTML = '<div style="color:#00ff73;font-weight:900;font-size:16px;text-align:center;padding:10px 0;">'
+        + '✅ Xush kelibsiz, ' + (tgUser.first_name||'') + '!<br>'
+        + '<small style="color:#aaa;font-weight:400;">Kirish amalga oshirilmoqda…</small></div>';
+    }
+    setTimeout(function(){
+      if(overlay) overlay.classList.remove('show');
+      location.reload();
+    }, 900);
+  };
+
+  /* ---------- init ---------- */
+  function init(){
+    /* Eski loginOverlay ni o'chirib qo'yamiz */
+    const old = document.getElementById('loginOverlay');
+    if(old){ old.style.display='none'; old.setAttribute('data-disabled','1'); }
+
+    const overlay = $('tgLoginOverlay');
+    if(!overlay) return;
     if(isLoggedIn()){ overlay.classList.remove('show'); return; }
     overlay.classList.add('show');
 
-    // Tabs
-    document.querySelectorAll('#tgLoginOverlay .tg-tab').forEach(t=>{
-      t.onclick=()=>{
-        document.querySelectorAll('#tgLoginOverlay .tg-tab').forEach(x=>x.classList.remove('active'));
-        document.querySelectorAll('#tgLoginOverlay .tg-pane').forEach(x=>x.classList.remove('active'));
+    /* Tab almashtirish */
+    document.querySelectorAll('#tgLoginOverlay .tg-tab').forEach(function(t){
+      t.onclick = function(){
+        document.querySelectorAll('#tgLoginOverlay .tg-tab').forEach(function(x){ x.classList.remove('active'); });
+        document.querySelectorAll('#tgLoginOverlay .tg-pane').forEach(function(x){ x.classList.remove('active'); });
         t.classList.add('active');
-        $('tgPane'+(t.dataset.tab==='tg'?'Tg':'Gm')).classList.add('active');
+        $(t.dataset.tab==='tg' ? 'tgPaneTg' : 'tgPaneGm').classList.add('active');
       };
     });
 
-    // Telegram flow
-    $('tgGoCodeBtn').onclick = ()=>{ window.open(BOT_URL,'_blank'); setStep(2); setTimeout(()=>$('tgCodeInput').focus(),200); };
-    $('tgBackBtn').onclick   = ()=>{ setStep(1); $('tgCodeErr').classList.remove('show'); $('tgCodeOk').classList.remove('show'); };
-    $('tgGetCodeBtn').onclick= (e)=>{
-      const btn=e.currentTarget; btn.classList.add('loading');
-      window.open(BOT_URL,'_blank');
-      $('tgCodeOk').textContent="✅ Botga o'ting va /start bosing — kod yuboriladi.";
-      $('tgCodeOk').classList.add('show');
-      setTimeout(()=>btn.classList.remove('loading'),1500);
-    };
-    // Faqat raqam
-    $('tgCodeInput').addEventListener('input',e=>{
-      e.target.value = e.target.value.replace(/\D/g,'').slice(0,6);
-    });
-    const VERIFY_URL = 'https://tafsgvphlsfimyotrlhe.supabase.co/functions/v1/verify-code';
-    $('tgConfirmCodeBtn').onclick = async ()=>{
-      const v = ($('tgCodeInput').value||'').trim();
-      $('tgCodeOk').classList.remove('show');
-      $('tgCodeErr').classList.remove('show');
-      if(!/^\d{6}$/.test(v)){
-        $('tgCodeErr').textContent="❌ 6 xonali kodni to'liq kiriting.";
-        $('tgCodeErr').classList.add('show'); return;
-      }
-      if(!navigator.onLine){
-        $('tgCodeErr').textContent="❌ Internet aloqasi yo'q. Internetni yoqing.";
-        $('tgCodeErr').classList.add('show'); return;
-      }
-      const btn = $('tgConfirmCodeBtn');
-      btn.classList.add('loading'); btn.disabled = true;
-      try {
-        const r = await fetch(VERIFY_URL, {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({code: v})
-        });
-        const data = await r.json();
-        if(!data.ok){
-          $('tgCodeErr').textContent = "❌ " + (data.error || "Kod noto'g'ri");
-          $('tgCodeErr').classList.add('show');
-          btn.classList.remove('loading'); btn.disabled = false;
-          return;
-        }
-        loginUser('telegram',{name:'Foydalanuvchi'});
-        $('tgCodeOk').textContent="✅ Muvaffaqiyatli! Ilovaga kirilmoqda...";
-        $('tgCodeOk').classList.add('show');
-        setTimeout(()=>{ $('tgLoginOverlay').classList.remove('show'); location.reload(); }, 700);
-      } catch(e){
-        $('tgCodeErr').textContent="❌ Server bilan bog'lanib bo'lmadi. Qaytadan urinib ko'ring.";
-        $('tgCodeErr').classList.add('show');
-        btn.classList.remove('loading'); btn.disabled = false;
-      }
-    };
-    $('tgCodeInput').addEventListener('keydown',e=>{ if(e.key==='Enter') $('tgConfirmCodeBtn').click(); });
+    /* ---------- Gmail flow ---------- */
+    var gmSubmit = $('tgGmSubmit');
+    if(gmSubmit){
+      gmSubmit.onclick = function(){
+        var name  = ($('tgGmName').value ||'').trim();
+        var email = ($('tgGmEmail').value||'').trim().toLowerCase();
+        var pass  = ($('tgGmPass').value ||'').trim();
+        var err   = $('tgGmErr');
+        err.classList.remove('show');
+        if(!name){  err.textContent="❌ Ismingizni kiriting.";     err.classList.add('show'); return; }
+        if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err.textContent="❌ To'g'ri email kiriting."; err.classList.add('show'); return; }
+        if(pass.length<4){ err.textContent="❌ Parol kamida 4 belgi."; err.classList.add('show'); return; }
 
-    // Gmail flow
-    $('tgGmSubmit').onclick = ()=>{
-      const name=($('tgGmName').value||'').trim();
-      const email=($('tgGmEmail').value||'').trim().toLowerCase();
-      const pass=($('tgGmPass').value||'').trim();
-      const err=$('tgGmErr');
-      err.classList.remove('show');
-      if(!name){ err.textContent="❌ Ismingizni kiriting."; err.classList.add('show'); return; }
-      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err.textContent="❌ To'g'ri email kiriting."; err.classList.add('show'); return; }
-      if(pass.length<4){ err.textContent="❌ Parol kamida 4 belgi."; err.classList.add('show'); return; }
-      // Save / login
-      let accs=[]; try{accs=JSON.parse(localStorage.getItem('kdp_gmail_accounts')||'[]');}catch(e){}
-      const existing=accs.find(a=>a.email===email);
-      if(existing){
-        if(existing.pass!==pass){ err.textContent="❌ Parol noto'g'ri."; err.classList.add('show'); return; }
-      } else {
-        accs.push({email,pass,name,created:Date.now()});
-        localStorage.setItem('kdp_gmail_accounts',JSON.stringify(accs));
-      }
-      loginUser('gmail',{id:'gm_'+btoa(email).replace(/=/g,'').slice(0,10),name,email,username:email.split('@')[0]});
-      setTimeout(()=>{ $('tgLoginOverlay').classList.remove('show'); location.reload(); },300);
-    };
+        var accs=[]; try{accs=JSON.parse(localStorage.getItem('kdp_gmail_accounts')||'[]');}catch(e){}
+        var existing = accs.find(function(a){return a.email===email;});
+        if(existing){
+          if(existing.pass!==pass){ err.textContent="❌ Parol noto'g'ri."; err.classList.add('show'); return; }
+        } else {
+          accs.push({email:email, pass:pass, name:name, created:Date.now()});
+          localStorage.setItem('kdp_gmail_accounts', JSON.stringify(accs));
+        }
+        loginUser('gmail',{id:'gm_'+btoa(email).replace(/=/g,'').slice(0,10), name:name, email:email, username:email.split('@')[0]});
+        setTimeout(function(){ overlay.classList.remove('show'); location.reload(); }, 300);
+      };
+    }
   }
 
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
 </script>
