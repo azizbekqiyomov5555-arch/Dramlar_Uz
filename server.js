@@ -1,6 +1,9 @@
-const express = require('express');
+const express  = require('express');
 const { Pool } = require('pg');
-const cors    = require('cors');
+const multer   = require('multer');
+const cors     = require('cors');
+const https    = require('https');
+const http     = require('http');
 require('dotenv').config();
 
 const app  = express();
@@ -13,65 +16,187 @@ app.use(express.json({ limit: '10mb' }));
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: (process.env.DATABASE_URL || '').includes('railway.internal')
-    ? false
-    : { rejectUnauthorized: false }
+    ? false : { rejectUnauthorized: false }
 });
 
 /* ── Jadval yaratish ── */
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS movies (
-      id           TEXT PRIMARY KEY,
-      title        TEXT    NOT NULL,
-      genre        TEXT    DEFAULT '',
-      price        INTEGER DEFAULT 0,
-      poster       TEXT    DEFAULT '',
-      poster_id    TEXT    DEFAULT '',
-      videos       JSONB   DEFAULT '[]',
-      video_keys   JSONB   DEFAULT '[]',
-      episode_prices JSONB DEFAULT '{}',
-      parts        JSONB   DEFAULT '[]',
-      created_at   TIMESTAMPTZ DEFAULT NOW()
+      id             TEXT PRIMARY KEY,
+      title          TEXT    NOT NULL,
+      genre          TEXT    DEFAULT '',
+      price          INTEGER DEFAULT 0,
+      poster         TEXT    DEFAULT '',
+      poster_id      TEXT    DEFAULT '',
+      videos         JSONB   DEFAULT '[]',
+      video_keys     JSONB   DEFAULT '[]',
+      episode_prices JSONB   DEFAULT '{}',
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS video_files (
+      id         SERIAL PRIMARY KEY,
+      movie_id   TEXT,
+      part_num   INTEGER DEFAULT 1,
+      data       BYTEA   NOT NULL,
+      mimetype   TEXT    DEFAULT 'video/mp4',
+      size       BIGINT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
   console.log('✅ PostgreSQL jadval tayyor');
 }
 initDB().catch(console.error);
 
-/* ── Admin token tekshirish ── */
+/* ── Admin token ── */
 function checkAdmin(req, res) {
-  const token = req.headers['x-admin-token'];
-  if (token !== process.env.ADMIN_TOKEN) {
+  if (req.headers['x-admin-token'] !== process.env.ADMIN_TOKEN) {
     res.status(403).json({ ok: false, error: 'Ruxsat yoq' });
     return false;
   }
   return true;
 }
 
-/* ═══════════════════════════════
-   GET  /api/movies  — barcha kinolar (hammaga)
-═══════════════════════════════ */
-app.get('/api/movies', async (req, res) => {
+/* ── Multer (xotiraga yuklash) ── */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024 * 1024 } // 500MB
+});
+
+/* ═══════════════════════════════════════
+   VIDEO YUKLASH  POST /api/upload/video
+   Galereyadан fayl → Railway → PostgreSQL (BYTEA)
+═══════════════════════════════════════ */
+app.post('/api/upload/video', upload.single('video'), async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'Fayl yuklanmadi' });
+
+    const { movie_id, part_num } = req.body;
+    const { buffer, mimetype, size } = req.file;
+
+    const { rows } = await pool.query(
+      `INSERT INTO video_files (movie_id, part_num, data, mimetype, size)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [movie_id || null, parseInt(part_num) || 1, buffer, mimetype, size || buffer.length]
+    );
+
+    const videoId = rows[0].id;
+    const videoUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN
+      ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN
+      : 'https://dramlaruz-production-1d04.up.railway.app'}/api/video/${videoId}`;
+
+    res.json({ ok: true, video_id: videoId, url: videoUrl });
+  } catch (e) {
+    console.error('Video upload error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/* ═══════════════════════════════════════
+   POSTER YUKLASH  POST /api/upload/poster
+   Galereyadан rasm → Railway → PostgreSQL
+═══════════════════════════════════════ */
+app.post('/api/upload/poster', upload.single('poster'), async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'Rasm yuklanmadi' });
+
+    const { buffer, mimetype } = req.file;
+
+    const { rows } = await pool.query(
+      `INSERT INTO video_files (part_num, data, mimetype, size)
+       VALUES (0, $1, $2, $3) RETURNING id`,
+      [buffer, mimetype, buffer.length]
+    );
+
+    const imgId = rows[0].id;
+    const imgUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN
+      ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN
+      : 'https://dramlaruz-production-1d04.up.railway.app'}/api/image/${imgId}`;
+
+    res.json({ ok: true, image_id: imgId, url: imgUrl });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/* ═══════════════════════════════════════
+   VIDEO STREAM  GET /api/video/:id
+═══════════════════════════════════════ */
+app.get('/api/video/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM movies ORDER BY created_at DESC'
+      'SELECT data, mimetype, size FROM video_files WHERE id=$1',
+      [req.params.id]
     );
+    if (!rows.length) return res.status(404).json({ error: 'Topilmadi' });
+
+    const { data, mimetype, size } = rows[0];
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const total = size || buf.length;
+
+    const range = req.headers.range;
+    if (range) {
+      const [startStr, endStr] = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(startStr, 10);
+      const end   = endStr ? parseInt(endStr, 10) : total - 1;
+      const chunk = end - start + 1;
+      res.writeHead(206, {
+        'Content-Range':  `bytes ${start}-${end}/${total}`,
+        'Accept-Ranges':  'bytes',
+        'Content-Length': chunk,
+        'Content-Type':   mimetype || 'video/mp4',
+      });
+      res.end(buf.slice(start, end + 1));
+    } else {
+      res.writeHead(200, {
+        'Content-Length': total,
+        'Content-Type':   mimetype || 'video/mp4',
+        'Accept-Ranges':  'bytes',
+      });
+      res.end(buf);
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ═══════════════════════════════════════
+   RASM  GET /api/image/:id
+═══════════════════════════════════════ */
+app.get('/api/image/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT data, mimetype FROM video_files WHERE id=$1',
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).end();
+    const buf = Buffer.isBuffer(rows[0].data) ? rows[0].data : Buffer.from(rows[0].data);
+    res.writeHead(200, { 'Content-Type': rows[0].mimetype || 'image/jpeg', 'Content-Length': buf.length });
+    res.end(buf);
+  } catch (e) {
+    res.status(500).end();
+  }
+});
+
+/* ═══════════════════════════════════════
+   KINOLAR API
+═══════════════════════════════════════ */
+app.get('/api/movies', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM movies ORDER BY created_at DESC');
     res.json({ ok: true, movies: rows });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-/* ═══════════════════════════════
-   POST /api/movies  — kino qo'shish (faqat admin)
-   Body: { id, title, genre, price, poster, posterId, videos, videoKeys, episodePrices }
-═══════════════════════════════ */
 app.post('/api/movies', async (req, res) => {
   if (!checkAdmin(req, res)) return;
   try {
     const { id, title, genre, price, poster, posterId, videos, videoKeys, episodePrices } = req.body;
     if (!title) return res.status(400).json({ ok: false, error: 'title majburiy' });
-
     const { rows } = await pool.query(
       `INSERT INTO movies (id, title, genre, price, poster, poster_id, videos, video_keys, episode_prices)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -79,17 +204,8 @@ app.post('/api/movies', async (req, res) => {
          title=$2, genre=$3, price=$4, poster=$5, poster_id=$6,
          videos=$7, video_keys=$8, episode_prices=$9
        RETURNING *`,
-      [
-        id,
-        title,
-        genre || '',
-        price || 0,
-        poster || '',
-        posterId || '',
-        JSON.stringify(videos || []),
-        JSON.stringify(videoKeys || []),
-        JSON.stringify(episodePrices || {})
-      ]
+      [id, title, genre||'', price||0, poster||'', posterId||'',
+       JSON.stringify(videos||[]), JSON.stringify(videoKeys||[]), JSON.stringify(episodePrices||{})]
     );
     res.json({ ok: true, movie: rows[0] });
   } catch (e) {
@@ -97,32 +213,6 @@ app.post('/api/movies', async (req, res) => {
   }
 });
 
-/* ═══════════════════════════════
-   PUT /api/movies/:id  — tahrirlash (faqat admin)
-═══════════════════════════════ */
-app.put('/api/movies/:id', async (req, res) => {
-  if (!checkAdmin(req, res)) return;
-  try {
-    const { title, genre, price, poster, posterId, videos, videoKeys, episodePrices } = req.body;
-    const { rows } = await pool.query(
-      `UPDATE movies SET
-         title=$1, genre=$2, price=$3, poster=$4, poster_id=$5,
-         videos=$6, video_keys=$7, episode_prices=$8
-       WHERE id=$9 RETURNING *`,
-      [title, genre||'', price||0, poster||'', posterId||'',
-       JSON.stringify(videos||[]), JSON.stringify(videoKeys||[]),
-       JSON.stringify(episodePrices||{}), req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ ok: false, error: 'Topilmadi' });
-    res.json({ ok: true, movie: rows[0] });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-/* ═══════════════════════════════
-   DELETE /api/movies/:id  — o'chirish (faqat admin)
-═══════════════════════════════ */
 app.delete('/api/movies/:id', async (req, res) => {
   if (!checkAdmin(req, res)) return;
   try {
@@ -133,22 +223,17 @@ app.delete('/api/movies/:id', async (req, res) => {
   }
 });
 
-/* ── Episode narxlarini yangilash ── */
 app.patch('/api/movies/:id/episode-prices', async (req, res) => {
   if (!checkAdmin(req, res)) return;
   try {
     const { episodePrices } = req.body;
-    const { rows } = await pool.query(
-      'UPDATE movies SET episode_prices=$1 WHERE id=$2 RETURNING *',
-      [JSON.stringify(episodePrices), req.params.id]
-    );
-    res.json({ ok: true, movie: rows[0] });
+    await pool.query('UPDATE movies SET episode_prices=$1 WHERE id=$2', [JSON.stringify(episodePrices), req.params.id]);
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-/* ── Health check ── */
 app.get('/health', (_, res) => res.json({ ok: true, time: new Date() }));
 
 app.listen(PORT, () => console.log(`🎬 KinoDrama API: http://localhost:${PORT}`));
