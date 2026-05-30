@@ -2309,7 +2309,12 @@ async function doLogin(){
                             posterId:      m.poster_id || '',
                             videos:        Array.isArray(m.videos)     ? m.videos     : [],
                             videoKeys:     Array.isArray(m.video_keys) ? m.video_keys : [],
-                            episodePrices: (m.episode_prices && typeof m.episode_prices === 'object') ? m.episode_prices : {}
+                            episodePrices: (() => {
+                                const raw = (m.episode_prices && typeof m.episode_prices === 'object') ? m.episode_prices : (m.episodePrices || {});
+                                const norm = {};
+                                Object.entries(raw).forEach(([k,v]) => { norm[parseInt(k)] = v; norm[k] = v; });
+                                return norm;
+                            })()
                         }));
                         moviesCacheTime = Date.now();
                         try { await db.profile.put({ key: 'movies_cache', value: cachedMovies }); } catch(_) {}
@@ -3485,7 +3490,7 @@ async function doLogin(){
             const purchasedSet = new Set(purchasedRows.map(r => r.partIdx));
 
             let parts = (m.videos || []).map((v, i) => {
-                const epPrice = ep[i];
+                const epPrice = (ep[i] !== undefined) ? ep[i] : (ep[String(i)] !== undefined ? ep[String(i)] : undefined);
                 const alreadyPurchased = purchasedSet.has(i);
                 const isPaid = epPrice !== undefined && epPrice > 0 && !hasPremium && !alreadyPurchased;
                 const priceLabel = (epPrice !== undefined && epPrice > 0 && !alreadyPurchased)
@@ -6593,9 +6598,10 @@ async function doLogin(){
                     const idx = movies.findIndex(x => x.id === epWizard.movieId);
                     if(idx === -1) return showToast('Kino topilmadi', 'error');
                     const prices = movies[idx].episodePrices || {};
-                    epWizard.partIdxs.forEach(i => { prices[i] = 0; });
+                    epWizard.partIdxs.forEach(i => { prices[String(i)] = 0; prices[i] = 0; });
                     movies[idx].episodePrices = prices;
                     await moviesSet(movies);
+                    try { await _railwayUpdateMovie(movies[idx]); } catch(e) { try { await _railwayUpdateEpisodePrices(epWizard.movieId, prices); } catch(e2) {} }
                     const qismText = [...epWizard.partIdxs].sort((a,b)=>a-b).map(i=>`${i+1}-qism`).join(', ');
                     document.getElementById('epSuccessMsg').innerHTML = `"${epWizard.movieTitle}" — ${qismText} endi BEPUL!`;
                     epShowStep(4);
@@ -6614,21 +6620,29 @@ async function doLogin(){
         async function epSavePrice() {
             const price = parseInt(document.getElementById('epPriceInput').value);
             if(isNaN(price) || price < 0) return showToast('To\'g\'ri narx kiriting!', 'error');
-            showToast('Saqlanmoqda...', '');
-            const movies = await moviesGet();
+            showToast('⏳ Saqlanmoqda...', '');
+            const movies = await moviesGet(true);
             const idx = movies.findIndex(x => x.id === epWizard.movieId);
             if(idx === -1) return showToast('Kino topilmadi', 'error');
             const prices = movies[idx].episodePrices || {};
             const sorted = [...epWizard.partIdxs].sort((a,b)=>a-b);
-            sorted.forEach(i => { prices[i] = price; });
+            // Har ikki format bilan saqlash (string va number kalit)
+            sorted.forEach(i => { prices[String(i)] = price; prices[i] = price; });
             movies[idx].episodePrices = prices;
+            // 1) Local cache
             await moviesSet(movies);
+            // 2) Railway cloud ga yuborish (muhim!)
+            try {
+                await _railwayUpdateMovie(movies[idx]);
+            } catch(e) {
+                try { await _railwayUpdateEpisodePrices(epWizard.movieId, prices); } catch(e2) {}
+            }
             const qismText = sorted.map(i=>`${i+1}-qism`).join(', ');
             document.getElementById('epSuccessMsg').innerHTML = price === 0
                 ? `"${epWizard.movieTitle}" — ${qismText} endi BEPUL!`
-                : `"${epWizard.movieTitle}" — ${qismText}: ${price.toLocaleString()} so'm`;
+                : `"${epWizard.movieTitle}" — ${qismText}: ${price.toLocaleString()} so'm ✅`;
             epShowStep(4);
-            showToast('Saqlandi!', 'success');
+            showToast('✅ Saqlandi!', 'success');
             loadContent();
         }
 
