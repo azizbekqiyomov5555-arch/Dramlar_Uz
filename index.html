@@ -2134,6 +2134,7 @@ async function doLogin(){
             loadAdminSettings();
             loadContent();
             loadMening();
+
         }
 
         async function loadAdminSettings() {
@@ -2279,6 +2280,47 @@ async function doLogin(){
         const MOVIES_CACHE_TTL = 60000;
         let _moviesPromise = null;
 
+        // ===== ISHONCHLI SAQLASH: IndexedDB + Railway + localStorage backup =====
+        async function _getLocalMovies() {
+            // 1) IndexedDB
+            try {
+                const local = await db.profile.get('movies_cache');
+                if(local && Array.isArray(local.value) && local.value.length > 0) return local.value;
+            } catch(_) {}
+            // 2) localStorage backup
+            try {
+                const ls = localStorage.getItem('kdp_movies_backup');
+                if(ls) { const arr = JSON.parse(ls); if(Array.isArray(arr) && arr.length > 0) return arr; }
+            } catch(_) {}
+            return [];
+        }
+
+        async function _saveLocalMovies(movies) {
+            if(!Array.isArray(movies) || movies.length === 0) return;
+            try { await db.profile.put({ key: 'movies_cache', value: movies }); } catch(_) {}
+            try { localStorage.setItem('kdp_movies_backup', JSON.stringify(movies)); } catch(_) {}
+        }
+
+        function _parseRailwayMovies(arr) {
+            return arr.map(m => ({
+                id:            m.id,
+                title:         m.title,
+                genre:         m.genre || '',
+                price:         m.price || 0,
+                poster:        m.poster || '',
+                posterId:      m.poster_id || m.posterId || '',
+                videos:        Array.isArray(m.videos)     ? m.videos     : [],
+                videoKeys:     Array.isArray(m.video_keys) ? m.video_keys : [],
+                episodePrices: (() => {
+                    const raw = (m.episode_prices && typeof m.episode_prices === 'object') ? m.episode_prices
+                              : (m.episodePrices && typeof m.episodePrices === 'object') ? m.episodePrices : {};
+                    const norm = {};
+                    Object.entries(raw).forEach(([k,v]) => { norm[parseInt(k)] = v; norm[k] = v; });
+                    return norm;
+                })()
+            }));
+        }
+
         async function moviesGet(forceRefresh = false) {
             const now = Date.now();
             if(!forceRefresh && cachedMovies.length > 0 && (now - moviesCacheTime) < MOVIES_CACHE_TTL) {
@@ -2287,51 +2329,50 @@ async function doLogin(){
             if(!forceRefresh && _moviesPromise) return _moviesPromise;
             _moviesPromise = (async () => {
                 try {
-                    // 1) Avval IndexedDB keshdan tez ko'rsatamiz
-                    if(!forceRefresh && cachedMovies.length === 0) {
-                        try {
-                            const local = await db.profile.get('movies_cache');
-                            if(local && Array.isArray(local.value) && local.value.length) {
-                                cachedMovies = local.value;
-                                moviesCacheTime = Date.now();
-                                setTimeout(() => { moviesGet(true).catch(() => {}); }, 100);
+                    // 1) Avval local dan tez ko'rsatamiz
+                    if(cachedMovies.length === 0) {
+                        const local = await _getLocalMovies();
+                        if(local.length > 0) {
+                            cachedMovies = local;
+                            moviesCacheTime = Date.now();
+                            if(!forceRefresh) {
+                                // Background da Railway dan yangilaymiz
+                                setTimeout(() => { moviesGet(true).catch(() => {}); }, 200);
                                 return cachedMovies;
                             }
-                        } catch(_) {}
+                        }
                     }
+
                     // 2) Railway API dan yuklaymiz
-                    const r = await fetch(RAILWAY_API + '/api/movies');
+                    const r = await fetch(RAILWAY_API + '/api/movies', { signal: AbortSignal.timeout(10000) });
                     const d = await r.json();
-                    if(d.ok) {
-                        cachedMovies = (d.movies || []).map(m => ({
-                            id:            m.id,
-                            title:         m.title,
-                            genre:         m.genre || '',
-                            price:         m.price || 0,
-                            poster:        m.poster || '',
-                            posterId:      m.poster_id || '',
-                            videos:        Array.isArray(m.videos)     ? m.videos     : [],
-                            videoKeys:     Array.isArray(m.video_keys) ? m.video_keys : [],
-                            episodePrices: (() => {
-                                const raw = (m.episode_prices && typeof m.episode_prices === 'object') ? m.episode_prices : (m.episodePrices || {});
-                                const norm = {};
-                                Object.entries(raw).forEach(([k,v]) => { norm[parseInt(k)] = v; norm[k] = v; });
-                                return norm;
-                            })()
-                        }));
-                        moviesCacheTime = Date.now();
-                        try { await db.profile.put({ key: 'movies_cache', value: cachedMovies }); } catch(_) {}
+
+                    if(d.ok && Array.isArray(d.movies)) {
+                        const fresh = _parseRailwayMovies(d.movies);
+
+                        // MUHIM: Railway bo'sh qaytarsa, local ni saqlaymiz
+                        if(fresh.length > 0) {
+                            cachedMovies = fresh;
+                            moviesCacheTime = Date.now();
+                            await _saveLocalMovies(cachedMovies);
+                        } else if(cachedMovies.length === 0) {
+                            // Railway bo'sh + local ham bo'sh — local dan qayta olishga urinamiz
+                            const fallback = await _getLocalMovies();
+                            if(fallback.length > 0) {
+                                cachedMovies = fallback;
+                                moviesCacheTime = Date.now();
+                                // Railway ga qayta yuboramiz (tiklash)
+                                _restoreMoviesToRailway(cachedMovies).catch(() => {});
+                            }
+                        }
+                        // Railway bo'sh + local da bor => local ni saqlab qolamiz (o'chirmaymiz)
                     }
                     return cachedMovies;
                 } catch(e) {
+                    // Railway ishlamasa — local dan qaytaramiz
                     if(cachedMovies.length === 0) {
-                        try {
-                            const local = await db.profile.get('movies_cache');
-                            if(local && Array.isArray(local.value)) {
-                                cachedMovies = local.value;
-                                moviesCacheTime = Date.now();
-                            }
-                        } catch(_) {}
+                        const local = await _getLocalMovies();
+                        if(local.length > 0) { cachedMovies = local; moviesCacheTime = Date.now(); }
                     }
                     return cachedMovies;
                 } finally {
@@ -2341,10 +2382,40 @@ async function doLogin(){
             return _moviesPromise;
         }
 
+        // Railway restart bo'lganda kinolarni qayta tiklash
+        async function _restoreMoviesToRailway(movies) {
+            for(const movie of movies) {
+                try { await _railwayAddMovie(movie); } catch(e) {}
+                await new Promise(r => setTimeout(r, 200));
+            }
+        }
+
+        // Sahifa ochilganda Railway bo'sh bo'lsa kinolarni tiklash
+        setTimeout(async () => {
+            try {
+                const r = await fetch(RAILWAY_API + '/api/movies', { signal: AbortSignal.timeout(8000) });
+                const d = await r.json();
+                if(d.ok && Array.isArray(d.movies) && d.movies.length === 0) {
+                    const localMovies = await _getLocalMovies();
+                    if(localMovies.length > 0) {
+                        showToast('⚡ Kinolar tiklanmoqda...', '');
+                        for(const movie of localMovies) {
+                            try { await _railwayAddMovie(movie); } catch(e) {}
+                            await new Promise(r => setTimeout(r, 300));
+                        }
+                        showToast('✅ ' + localMovies.length + ' ta kino qayta yuklandi!', 'success');
+                        loadContent();
+                    }
+                }
+            } catch(e) {}
+        }, 3000);
+
         async function moviesSet(movies) {
+            if(!Array.isArray(movies)) return;
             cachedMovies = movies;
             moviesCacheTime = Date.now();
-            try { await db.profile.put({ key: 'movies_cache', value: movies }); } catch(_) {}
+            // Har ikki joyga saqlash
+            await _saveLocalMovies(movies);
         }
 
         // Kinoni Railway da yangilash (qism qo'shish, o'chirish, URL o'zgartirish)
@@ -2482,11 +2553,18 @@ async function doLogin(){
                     videoKeys: videoUrls,
                     episodePrices: {}
                 };
-                // Railway PostgreSQL ga saqlash
-                const saveResult = await _railwayAddMovie(newMovie);
-                if(!saveResult.ok) throw new Error(saveResult.error || 'Railway xatosi');
+                // AVVAL local ga saqlaymiz (yo'qolmasin uchun)
                 movies.unshift(newMovie);
                 await moviesSet(movies);
+                // Keyin Railway ga yuboramiz
+                try {
+                    const saveResult = await _railwayAddMovie(newMovie);
+                    if(!saveResult || (!saveResult.ok && !saveResult.id && !saveResult._id)) {
+                        showToast('⚠️ Cloud xatosi, local saqlandi', 'error');
+                    }
+                } catch(railErr) {
+                    showToast('⚠️ Cloud offline, kino local saqlandi', '');
+                }
 
                 btn.innerHTML = '✅ Bajarildi! Kino saqlandi';
                 btn.style.background = 'linear-gradient(90deg,#00ff73,#00cc5c)';
@@ -3999,7 +4077,14 @@ async function doLogin(){
             if(el) el.style.display = 'none';
         }
         function retryVideo() {
-            if(_currentVideoSrc) { hideVideoError(); playVideo(_currentVideoSrc); }
+            if(_currentVideoSrc) {
+                hideVideoError();
+                // Video elementini tozalaymiz
+                const v = document.getElementById('mainVideo');
+                if(v) { v.pause(); v.src = ''; v.load(); }
+                showVideoLoading('Qayta urinilmoqda...');
+                setTimeout(() => { playVideo(_currentVideoSrc); }, 800);
+            }
         }
 
         function playVideo(videoSrc) {
@@ -4216,7 +4301,7 @@ async function doLogin(){
                             hideVideoLoading();
                             v.style.display = 'block';
                             v.onerror = null; v.oncanplay = null;
-                            let _lt = setTimeout(() => { if(v.readyState < 3) showVideoError('Video juda sekin yuklanmoqda. Qayta urining.'); }, 15000);
+                            let _lt = setTimeout(() => { if(v.readyState < 2) showVideoError('Video juda sekin yuklanmoqda. Qayta urining.'); }, 45000);
                             v.oncanplay = () => { clearTimeout(_lt); hideVideoLoading(); v.oncanplay = null; };
                             v.onerror = () => {
                                 clearTimeout(_lt);
@@ -4238,8 +4323,9 @@ async function doLogin(){
                         hideVideoLoading();
                         v.style.display = 'block';
                         v.onerror = null; v.oncanplay = null;
-                        let _lt = setTimeout(() => { if(v.readyState < 3) showVideoError('Video juda sekin yuklanmoqda. Qayta urining.'); }, 15000);
+                        let _lt = setTimeout(() => { if(v.readyState < 2) showVideoError('Video juda sekin yuklanmoqda. Qayta urining.'); }, 45000);
                         v.oncanplay = () => { clearTimeout(_lt); hideVideoLoading(); v.oncanplay = null; };
+                        v.onplaying = () => { clearTimeout(_lt); hideVideoLoading(); };
                         v.onerror = () => {
                             clearTimeout(_lt);
                             // Fallback: Cloudflare proxy
@@ -4280,15 +4366,42 @@ async function doLogin(){
                     showVideoError(msg);
                 };
 
-                // 15 soniya ichida yuklanmasa xato ko'rsat
-                let _loadTimer = setTimeout(() => {
-                    if(v.readyState < 3) {
-                        showVideoError('Video juda sekin yuklanmoqda. Internet aloqasini tekshiring yoki qayta urining.');
-                    }
-                }, 15000);
-                v.oncanplay = () => { clearTimeout(_loadTimer); hideVideoLoading(); v.oncanplay = null; };
+                // Yuklash progressini kuzatamiz
+                let _loadTimer = null;
+                let _stallCount = 0;
+
+                function _startLoadTimer() {
+                    clearTimeout(_loadTimer);
+                    _loadTimer = setTimeout(() => {
+                        if(v.readyState < 2) {
+                            showVideoError('Video juda sekin yuklanmoqda. Internet aloqasini tekshiring yoki qayta urining.');
+                        }
+                    }, 45000); // 45 soniya
+                }
+                _startLoadTimer();
+
+                v.oncanplay = () => { clearTimeout(_loadTimer); hideVideoLoading(); };
+                v.onplaying = () => { clearTimeout(_loadTimer); hideVideoLoading(); };
+                v.onprogress = () => {
+                    // Yuklash borganda timerni yangilaymiz
+                    if(v.readyState >= 2) { clearTimeout(_loadTimer); hideVideoLoading(); }
+                };
+                v.onwaiting = () => {
+                    _stallCount++;
+                    showVideoLoading('Bufer to\u2019ldirilmoqda... ⏳');
+                    clearTimeout(_loadTimer);
+                    _loadTimer = setTimeout(() => {
+                        if(v.readyState < 2 && _stallCount > 3) {
+                            showVideoError('Video juda sekin yuklanmoqda. Internet aloqasini tekshiring yoki qayta urining.');
+                        } else {
+                            hideVideoLoading();
+                        }
+                    }, 20000);
+                };
+                v.oncanplaythrough = () => { clearTimeout(_loadTimer); hideVideoLoading(); };
 
                 v.src = videoSrc;
+                v.load();
                 v.play().catch(() => {});
             }
 
