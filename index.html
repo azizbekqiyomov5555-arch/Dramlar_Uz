@@ -3631,27 +3631,53 @@ async function doLogin(){
         // === WATERMARK ===
         let wmInterval = null;
         let wmStep = 0;
+        function getUserWatermarkText() {
+            // Foydalanuvchi ma'lumotlarini olish
+            try {
+                // 1) Telegram WebApp dan
+                const tg = window.Telegram && window.Telegram.WebApp;
+                const tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+                if(tgUser) {
+                    const id    = tgUser.id    ? 'ID:' + tgUser.id : '';
+                    const uname = tgUser.username ? '@' + tgUser.username : (tgUser.first_name || '');
+                    const phone = tgUser.phone_number ? '+' + tgUser.phone_number : '';
+                    return [id, uname, phone].filter(Boolean).join('  ');
+                }
+                // 2) localStorage dan
+                const u = JSON.parse(localStorage.getItem('kdp_local_user') || 'null');
+                if(u) {
+                    const id    = u.tg_id    ? 'ID:' + u.tg_id    : (u.id ? 'ID:' + u.id : '');
+                    const uname = u.username  ? '@' + u.username   : (u.first_name || u.name || '');
+                    const phone = u.phone     ? '+' + u.phone      : '';
+                    return [id, uname, phone].filter(Boolean).join('  ');
+                }
+            } catch(e) {}
+            return 'DramlarUz';
+        }
+
         function showWatermarks() {
             clearInterval(wmInterval);
             wmStep = 0;
             const container = document.getElementById('wmContainer');
             if(!container) return;
 
-            // Har safar bita yozuv, 4 xil tarafdan navbatma-navbat
+            // Foydalanuvchi matni
+            const wmText = getUserWatermarkText();
+
+            // 4 xil pozitsiya — har birida 1 ta label paydo bo'ladi
             const steps = [
-                // o'ngdan keladi — o'ngda paydo bo'ladi
-                { top:'20%', left:'auto', right:'-100%', bottom:'auto',
-                  animate: 'right', from:'-100%', to:'8%', fs:'14px' },
-                // chapdan keladi — chapda paydo bo'ladi
-                { top:'45%', left:'-100%', right:'auto', bottom:'auto',
-                  animate: 'left', from:'-100%', to:'5%', fs:'14px' },
-                // pastdan keladi — pastda paydo bo'ladi
-                { top:'auto', left:'50%', right:'auto', bottom:'-60px',
-                  transform:'translateX(-50%)',
-                  animate: 'bottom', from:'-60px', to:'15%', fs:'14px' },
-                // yuqoridan keladi — tepada paydo bo'ladi
-                { top:'-60px', left:'30%', right:'auto', bottom:'auto',
-                  animate: 'top', from:'-60px', to:'8%', fs:'14px' },
+                // Yuqori-chap
+                { top:'8%',  left:'-110%', right:'auto', bottom:'auto',
+                  animate:'left', from:'-110%', to:'4%' },
+                // Yuqori-o'ng
+                { top:'20%', left:'auto',  right:'-110%', bottom:'auto',
+                  animate:'right', from:'-110%', to:'4%' },
+                // Quyi-chap
+                { top:'auto', left:'-110%', right:'auto', bottom:'12%',
+                  animate:'left', from:'-110%', to:'4%' },
+                // Quyi-o'ng
+                { top:'auto', left:'auto', right:'-110%', bottom:'25%',
+                  animate:'right', from:'-110%', to:'4%' },
             ];
 
             function spawnOne() {
@@ -3660,23 +3686,36 @@ async function doLogin(){
                 }
                 container.innerHTML = '';
                 const cfg = steps[wmStep % steps.length];
-                const el = document.createElement('div');
+                const el  = document.createElement('div');
                 el.className = 'wm-label';
-                el.style.cssText = `
-                    position:absolute;
-                    top:${cfg.top};
-                    left:${cfg.left};
-                    right:${cfg.right};
-                    bottom:${cfg.bottom};
-                    font-size:${cfg.fs};
-                    transform:${cfg.transform || ''};
-                    transition: ${cfg.animate} 0.7s cubic-bezier(0.34,1.3,0.64,1), opacity 0.5s ease;
-                    opacity:0;
-                `;
-                el.textContent = 'Pryum Drama Kino';
+
+                // Har safar yangi matn (har xil qatorlarda)
+                const lines = wmText.split('  ');
+                el.innerHTML = lines.map(l => `<span style="display:block;line-height:1.4">${l}</span>`).join('');
+
+                el.style.cssText = [
+                    'position:absolute',
+                    'font-size:11px',
+                    'font-weight:700',
+                    'color:rgba(255,255,255,0.82)',
+                    'text-shadow:0 0 6px rgba(0,0,0,0.9),0 1px 3px rgba(0,0,0,0.8)',
+                    'background:rgba(0,0,0,0.28)',
+                    'padding:4px 8px',
+                    'border-radius:6px',
+                    'pointer-events:none',
+                    'z-index:9999',
+                    'max-width:55%',
+                    'word-break:break-all',
+                    `top:${cfg.top}`,
+                    `left:${cfg.left}`,
+                    `right:${cfg.right}`,
+                    `bottom:${cfg.bottom}`,
+                    `transition:${cfg.animate} 0.65s cubic-bezier(0.34,1.2,0.64,1),opacity 0.5s ease`,
+                    'opacity:0',
+                ].join(';');
+
                 container.appendChild(el);
 
-                // Slide in
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
                         el.style[cfg.animate] = cfg.to;
@@ -3684,18 +3723,19 @@ async function doLogin(){
                     });
                 });
 
-                // 2.5s keyin yo'qolsin
+                // 3 soniya ko'rinib tursin, keyin yo'qolsin
                 setTimeout(() => {
                     el.style.opacity = '0';
                     el.style[cfg.animate] = cfg.from;
-                }, 2500);
+                }, 3000);
 
                 wmStep++;
             }
 
             spawnOne();
-            wmInterval = setInterval(spawnOne, 3800);
+            wmInterval = setInterval(spawnOne, 4200);
         }
+
         function stopWatermarks() {
             clearInterval(wmInterval); wmInterval = null; wmStep = 0;
             const c = document.getElementById('wmContainer'); if(c) c.innerHTML = '';
