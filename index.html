@@ -2326,10 +2326,19 @@ async function doLogin(){
         }
 
         // Kinoni Railway da yangilash (qism qo'shish, o'chirish, URL o'zgartirish)
+        // Railway da PUT yo'q — shuning uchun o'chir + qayta POST
         async function _railwayUpdateMovie(movie) {
             try {
-                const r = await fetch(RAILWAY_API + '/api/movies/' + movie.id, {
-                    method: 'PUT',
+                // 1) Avval o'chirish
+                await fetch(RAILWAY_API + '/api/movies/' + movie.id, {
+                    method: 'DELETE',
+                    headers: { 'x-admin-token': ADMIN_TOKEN_H }
+                });
+            } catch(e) {}
+            try {
+                // 2) Qayta qo'shish
+                const r = await fetch(RAILWAY_API + '/api/movies', {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-admin-token': ADMIN_TOKEN_H },
                     body: JSON.stringify({
                         id: movie.id, title: movie.title, genre: movie.genre || '',
@@ -5819,7 +5828,7 @@ async function doLogin(){
                 movies[mIdx].videos[i] = url;
                 if(movies[mIdx].videoKeys) movies[mIdx].videoKeys[i] = url;
 
-                await _railwayUpdateMovie(movies[mIdx]);
+                try { await _railwayUpdateMovie(movies[mIdx]); } catch(e) { console.warn("Railway:", e); }
                 await moviesSet(movies);
                 msg.style.color='var(--accent)'; msg.textContent='✅ Saqlandi!';
 
@@ -5933,7 +5942,7 @@ async function doLogin(){
                     movies[mIdx].episodePrices = newPrices;
                 }
 
-                await _railwayUpdateMovie(movies[mIdx]);
+                try { await _railwayUpdateMovie(movies[mIdx]); } catch(e) { console.warn("Railway:", e); }
                 await moviesSet(movies);
                 currentEpisodeCount = movies[mIdx].videos.length;
                 renderExistingEpisodes(movies[mIdx]);
@@ -6044,11 +6053,8 @@ async function doLogin(){
                 movies[idx].videos    = [...(movies[idx].videos    || []), ...newUrls];
                 movies[idx].videoKeys = [...(movies[idx].videoKeys || []), ...newUrls];
 
-                // Avval Railway ga saqlash
-                const railResult = await _railwayUpdateMovie(movies[idx]);
-                if(railResult && !railResult.ok) {
-                    console.warn('Railway update warning:', railResult.error);
-                }
+                // Railway ga saqlash (xato bo'lsa ham davom etamiz)
+                try { await _railwayUpdateMovie(movies[idx]); } catch(e) { console.warn('Railway:', e); }
                 // Local cache ni yangilash
                 await moviesSet(movies);
 
