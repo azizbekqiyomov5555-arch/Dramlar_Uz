@@ -116,9 +116,12 @@
         
         .part-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
         .part-btn { 
-            background: #111; border: 1.5px solid #333; color: white; padding: 14px; 
+            background: #111; border: 1.5px solid #333; color: white; padding: 12px 6px; 
             border-radius: 12px; font-weight: 900; text-align: center; font-size: 13px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 56px; cursor: pointer; transition: transform 0.1s, border-color 0.2s;
         }
+        .part-btn:active { transform: scale(0.94); }
         .part-btn.selected { background: var(--accent); color: #000; border-color: var(--accent); }
         /* KO'RISH tugmasi pastda fixed */
         .detail-play-bar {
@@ -3493,18 +3496,40 @@ async function doLogin(){
                 const epPrice = (ep[i] !== undefined) ? ep[i] : (ep[String(i)] !== undefined ? ep[String(i)] : undefined);
                 const alreadyPurchased = purchasedSet.has(i);
                 const isPaid = epPrice !== undefined && epPrice > 0 && !hasPremium && !alreadyPurchased;
-                const priceLabel = (epPrice !== undefined && epPrice > 0 && !alreadyPurchased)
-                    ? `<div style="font-size:10px;font-weight:900;color:#00ff73;text-align:center;margin-bottom:3px;text-shadow:0 0 8px rgba(0,255,115,0.8);">${epPrice.toLocaleString()} so'm</div>`
-                    : (epPrice === 0 || alreadyPurchased ? `<div style="font-size:10px;font-weight:900;color:#00ff73;text-align:center;margin-bottom:3px;">${alreadyPurchased && epPrice > 0 ? '✅' : 'BEPUL'}</div>` : '');
                 const clickHandler = isPaid
                     ? `onclick="showBuyEpisodeModal('${m.id}', ${i}, ${epPrice}, '${m.title.replace(/'/g,"\\'")}')"`
                     : `onclick="setPart(${i})"`;
-                const lockIcon = isPaid ? `<span class="green-lock"></span>` : '';
-                const btnStyle = isPaid
-                    ? `style="background:#0d1f14; border:1.5px solid #00ff73; color:#00ff73; box-shadow:0 0 12px rgba(0,255,115,0.25);" `
-                    : '';
                 const isSelected = i === 0 ? 'selected' : '';
-                return `<div style="display:flex;flex-direction:column;">${priceLabel}<div class="part-btn tap-active ${isSelected} ${isPaid?'locked':''}" id="part-${i}" ${btnStyle}${clickHandler}>${lockIcon}${i+1}-qism</div></div>`;
+
+                if(alreadyPurchased && epPrice > 0) {
+                    // Sotib olingan — yashil border, ichida ✅
+                    return `<div class="part-btn tap-active ${isSelected}" id="part-${i}"
+                        style="background:#0a1f10;border:1.5px solid #00cc5c;color:#00ff73;position:relative;"
+                        onclick="setPart(${i})">
+                        <div style="font-size:13px;font-weight:900;">${i+1}-qism</div>
+                        <div style="font-size:9px;color:#00cc5c;font-weight:700;margin-top:2px;">✅ SOTILGAN</div>
+                    </div>`;
+                } else if(isPaid) {
+                    // Pullik — qulf + narx tugma ichida
+                    return `<div class="part-btn tap-active locked" id="part-${i}"
+                        style="background:#0d1f14;border:1.5px solid #00ff73;color:#00ff73;box-shadow:0 0 14px rgba(0,255,115,0.3);padding:10px 6px;position:relative;"
+                        ${clickHandler}>
+                        <div style="font-size:16px;margin-bottom:2px;">🔒</div>
+                        <div style="font-size:12px;font-weight:900;">${i+1}-qism</div>
+                        <div style="font-size:10px;color:#00ff73;font-weight:900;margin-top:2px;text-shadow:0 0 8px rgba(0,255,115,0.8);">${epPrice.toLocaleString()} so'm</div>
+                    </div>`;
+                } else if(epPrice === 0) {
+                    // Tekin belgilangan
+                    return `<div class="part-btn tap-active ${isSelected}" id="part-${i}"
+                        style="background:#111;border:1.5px solid #333;color:#888;padding:10px 6px;"
+                        onclick="setPart(${i})">
+                        <div style="font-size:12px;font-weight:900;color:white;">${i+1}-qism</div>
+                        <div style="font-size:9px;color:#00ff73;font-weight:700;margin-top:2px;">BEPUL</div>
+                    </div>`;
+                } else {
+                    // Oddiy qism
+                    return `<div class="part-btn tap-active ${isSelected}" id="part-${i}" onclick="setPart(${i})">${i+1}-qism</div>`;
+                }
             }).join('');
 
             document.getElementById('detailContent').innerHTML = `
