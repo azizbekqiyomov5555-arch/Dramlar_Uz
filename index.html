@@ -1001,14 +1001,6 @@ async function doLogin(){
         <!-- MENU QATORLARI -->
         <div style="display:flex; flex-direction:column; gap:10px;">
 
-            <!-- Nakrutka -->
-            <div class="siz-row tap-active" onclick="openNakrutkaModal()" style="--row-color:rgba(255,149,0,0.10); --row-border:#2d1e00;">
-                <div class="siz-row-icon" style="background:rgba(255,149,0,0.15); border-color:rgba(255,149,0,0.35);">🚀</div>
-                <div class="siz-row-text"><span>Nakrutka</span><small>Telegram · Instagram xizmatlar</small></div>
-                <span style="width:9px;height:9px;background:#ff9f0a;border-radius:50%;animation:blink 1.5s infinite;flex-shrink:0;margin-right:4px;"></span>
-                <div class="siz-row-arrow" style="color:#ff9f0a;">›</div>
-            </div>
-
             <!-- Promokod -->
             <div class="siz-row tap-active" onclick="openPromoModal()" style="--row-color:rgba(0,255,115,0.12); --row-border:#1a3d28;">
                 <div class="siz-row-icon" style="background:rgba(0,255,115,0.15); border-color:rgba(0,255,115,0.3);">🎁</div>
@@ -1248,57 +1240,7 @@ async function doLogin(){
                  Endi foydalanuvchilar yordam markazida bot bilan suhbatlashadi va
                  to'g'ridan-to'g'ri admin bilan bog'lanishlari mumkin. -->
 
-            <!-- NAKRUTKA API KALITLAR -->
-            <div class="modal-content">
-                <h3>🔑 Nakrutka API Kalitlar</h3>
-                <div style="font-size:12px;color:#888;margin-bottom:12px;">SMM panel API URL va kalitlarini kiriting (bir nechta qo'shish mumkin)</div>
-                <div id="nkApiListAdmin"></div>
-                <button onclick="addNkApiRow()" style="background:#1a1a1a;color:var(--accent);border:1.5px dashed #333;width:100%;padding:12px;border-radius:12px;font-weight:900;margin-bottom:12px;">+ API qo'shish</button>
-                <button class="btn-adm" onclick="saveNkApis()">🔑 API KALITLARNI SAQLASH</button>
-                <div id="nkApiSaveMsg" style="text-align:center;font-size:13px;font-weight:700;margin-top:8px;min-height:18px;"></div>
-                <!-- Bot hisoblari (saqlangandan keyin ko'rinadi) -->
-                <div id="nkApiBotBalances" style="display:none;margin-top:14px;padding:14px;background:#0a0a0a;border-radius:14px;border:1px solid #1a2a1a;"></div>
-                <button onclick="refreshNkBotBalances()" style="background:#0d1f14;color:var(--accent);border:1.5px solid rgba(0,255,115,0.3);width:100%;padding:11px;border-radius:12px;font-weight:900;margin-top:10px;font-size:13px;">🔄 Bot hisobini yangilash</button>
-            </div>
-
-            <!-- NAKRUTKA XIZMATLAR BOSHQARUVI -->
-            <div class="modal-content">
-                <h3>🚀 Nakrutka Xizmat Qo'shish</h3>
-                <div style="font-size:12px;color:#888;margin-bottom:14px;">API URL va Key ni tepadagi bo'limda saqlang, keyin xizmat qo'shing</div>
-
-                <!-- Platform -->
-                <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:6px;">Platform:</div>
-                <select id="nkAdmPlatform" style="width:100%;padding:14px;background:#1a1a1a;border:1.5px solid #333;color:white;border-radius:12px;margin-bottom:12px;font-size:15px;font-weight:700;box-sizing:border-box;">
-                    <option value="telegram">✈️ Telegram</option>
-                    <option value="instagram">📸 Instagram</option>
-                </select>
-
-                <!-- API tanlash -->
-                <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:6px;">Qaysi API dan foydalanish:</div>
-                <select id="nkAdmApiIndex" style="width:100%;padding:14px;background:#1a1a1a;border:1.5px solid #333;color:white;border-radius:12px;margin-bottom:12px;font-size:15px;font-weight:700;box-sizing:border-box;">
-                    <option value="0">API #1</option>
-                    <option value="1">API #2</option>
-                    <option value="2">API #3</option>
-                </select>
-
-                <!-- Xizmat nomi -->
-                <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:6px;">Xizmat nomi:</div>
-                <input type="text" id="nkAdmName" placeholder="masalan: Telegram Ko'rishlar" style="margin-bottom:12px;">
-
-                <!-- Xizmat ID -->
-                <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:6px;">SMM Panel Xizmat ID:</div>
-                <input type="text" id="nkAdmServiceId" placeholder="masalan: 123" style="margin-bottom:12px;">
-
-                <!-- Narx -->
-                <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:6px;">1 dona narxi (so'm):</div>
-                <input type="number" id="nkAdmPrice" placeholder="masalan: 50" style="margin-bottom:16px;">
-
-                <button class="btn-adm" onclick="addNakrutkaService()" style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;">
-                    <i class="fa fa-plus"></i> XIZMAT QO'SHISH
-                </button>
-                <div id="nkAdmAddMsg" style="text-align:center;font-size:13px;font-weight:700;margin-top:8px;min-height:18px;"></div>
-                <div id="nkAdmList" style="margin-top:14px;"></div>
-            </div>
+            <!-- Nakrutka bo'limlari olib tashlandi -->
 
             <div class="modal-content">
                 <h3>Kinolarni boshqarish</h3>
@@ -7788,20 +7730,53 @@ async function loadAllUsersAdmin(){
   if(!list) return;
   list.innerHTML = '<div style="color:#888;font-size:13px;padding:10px;">⏳ Yuklanmoqda...</div>';
   try{
-    // Bulutdan (JSONBin orqali) foydalanuvchilarni yuklash
     let users = [];
+
+    // 1) JSONBin cloud bazasidan barcha foydalanuvchilarni yuklash
     try{
-      const all = await db.users.toArray();
-      users = all || [];
+      const all = await usersGet(true); // force fresh
+      // all = { "userId": { id, name, balance, expiry, lastSeen }, ... }
+      if(all && typeof all === 'object'){
+        users = Object.values(all).map(u => ({
+          userId: u.id || u.userId,
+          name: u.name || 'Foydalanuvchi',
+          balance: u.balance || 0,
+          expiry: u.expiry || 0,
+          lastSeen: u.lastSeen || 0
+        }));
+        // Eng so'nggi ko'rilgan vaqt bo'yicha tartiblash
+        users.sort((a,b) => (b.lastSeen||0) - (a.lastSeen||0));
+      }
     }catch(_){}
-    // Joriy foydalanuvchini ham qo'shamiz (agar ro'yxatda bo'lmasa)
+
+    // 2) Local IndexedDB dan ham (cloud da bo'lmagan bo'lsa)
+    try{
+      const localAll = await db.users.toArray();
+      if(localAll && localAll.length){
+        localAll.forEach(u => {
+          if(!users.find(x => String(x.userId) === String(u.userId))){
+            users.push(u);
+          }
+        });
+      }
+    }catch(_){}
+
+    // 3) Joriy foydalanuvchini ham qo'shamiz (agar ro'yxatda bo'lmasa)
     try{
       const me = (await db.profile.get('user_info'))?.value;
       if(me && me.id && !users.find(u=>String(u.userId)===String(me.id))){
         users.push({ userId: me.id, name: me.name, balance: (await db.profile.get('balance'))?.value||0, expiry: (await db.profile.get('expiry'))?.value||0 });
       }
     }catch(_){}
+
     _allUsersCache = users;
+
+    // Jami sonni yangilash
+    const cntInline = document.getElementById('usersTotalCntInline');
+    if(cntInline) cntInline.textContent = users.length;
+    const cnt = document.getElementById('usersTotalCnt');
+    if(cnt) cnt.textContent = users.length;
+
     renderUsersList();
   }catch(e){
     list.innerHTML = '<div style="color:#ff6b6b;font-size:13px;padding:10px;">Xato: '+e.message+'</div>';
