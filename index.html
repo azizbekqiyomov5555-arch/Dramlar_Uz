@@ -2359,6 +2359,91 @@ async function doLogin(){
         const RAILWAY_API   = window.RAILWAY_API_URL   || 'https://dramlaruz-production-1d04.up.railway.app';
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
+        // ===== CLOUDFLARE R2 SOZLAMALARI =====
+        const R2_ACCOUNT_ID    = 'bcca12c7edccf2a1633c58ff9e4d202d';
+        const R2_ACCESS_KEY_ID = '2519178aed5d28a4f4d81922d2a14d9d';
+        const R2_SECRET_KEY    = 'a827f95cd5931c3bd532b6f35e41d7e4decccea3c';
+        const R2_BUCKET        = 'kino-drama';
+        const R2_PUBLIC_URL    = 'https://pub-271e3540fa7f4b0a85bfcf9bb56b3ae2.r2.dev';
+        const R2_ENDPOINT      = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+
+        // R2 ga fayl yuklash funksiyasi (S3 API orqali)
+        async function uploadToR2(file, onProgress) {
+            const fileName = `videos/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            const uploadUrl = `${R2_ENDPOINT}/${R2_BUCKET}/${fileName}`;
+
+            // HMAC-SHA256 imzo yaratish uchun yordamchi funksiyalar
+            async function hmacSHA256(key, data) {
+                const k = (typeof key === 'string') ? new TextEncoder().encode(key) : key;
+                const cryptoKey = await crypto.subtle.importKey('raw', k, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+                return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data)));
+            }
+            async function sha256(data) {
+                const buf = (typeof data === 'string') ? new TextEncoder().encode(data) : data;
+                return new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+            }
+            function toHex(buf) { return Array.from(buf).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0,10).replace(/-/g,'');
+            const amzDate = now.toISOString().replace(/[:-]|\.\d+/g,'').slice(0,15)+'Z';
+            const region = 'auto';
+            const service = 's3';
+
+            // Fayl hash
+            const fileHash = toHex(await sha256(await file.arrayBuffer()));
+
+            const headers = {
+                'host': `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+                'x-amz-content-sha256': fileHash,
+                'x-amz-date': amzDate,
+                'content-type': file.type || 'application/octet-stream',
+            };
+
+            const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+            const canonicalHeaders = `content-type:${headers['content-type']}\nhost:${headers['host']}\nx-amz-content-sha256:${headers['x-amz-content-sha256']}\nx-amz-date:${headers['x-amz-date']}\n`;
+            const canonicalRequest = `PUT\n/${R2_BUCKET}/${fileName}\n\n${canonicalHeaders}\n${signedHeaders}\n${fileHash}`;
+            const credentialScope = `${dateStr}/${region}/${service}/aws4_request`;
+            const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${toHex(await sha256(canonicalRequest))}`;
+
+            const signingKey = await hmacSHA256(
+                await hmacSHA256(
+                    await hmacSHA256(
+                        await hmacSHA256('AWS4' + R2_SECRET_KEY, dateStr),
+                        region),
+                    service),
+                'aws4_request');
+            const signature = toHex(await hmacSHA256(signingKey, stringToSign));
+
+            const authorization = `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY_ID}/${credentialScope},SignedHeaders=${signedHeaders},Signature=${signature}`;
+
+            // XHR bilan yuklash (progress uchun)
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', uploadUrl);
+                xhr.setRequestHeader('Authorization', authorization);
+                xhr.setRequestHeader('x-amz-date', amzDate);
+                xhr.setRequestHeader('x-amz-content-sha256', fileHash);
+                xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+                xhr.timeout = 1800000; // 30 daqiqa
+
+                xhr.upload.onprogress = (e) => {
+                    if(e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+                };
+                xhr.onload = () => {
+                    if(xhr.status === 200) {
+                        resolve(`${R2_PUBLIC_URL}/${fileName}`);
+                    } else {
+                        reject(new Error(`R2 xatosi: ${xhr.status} ${xhr.responseText}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('Tarmoq xatosi'));
+                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (30 daqiqa)'));
+                xhr.send(file);
+            });
+        }
+        // ===== R2 SOZLAMALARI TUGADI =====
+
         let cachedMovies = [];
         let moviesCacheTime = 0;
         const MOVIES_CACHE_TTL = 60000;
@@ -4798,36 +4883,22 @@ async function doLogin(){
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
             progBar.style.width = '20%';
-            progTxt.textContent = 'Railway ga yuklanmoqda...';
+            progTxt.textContent = 'R2 ga yuklanmoqda...';
 
             try {
-                const fd = new FormData();
-                fd.append('poster', file);
-
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', RAILWAY_API + '/api/upload/poster');
-                xhr.setRequestHeader('x-admin-token', ADMIN_TOKEN_H);
-                xhr.upload.onprogress = (e) => {
-                    if(e.lengthComputable) {
-                        const p = Math.round((e.loaded / e.total) * 90);
-                        progBar.style.width = p + '%';
-                        progTxt.textContent = Math.round(e.loaded/1024) + ' KB yuklandi...';
-                    }
-                };
-                const result = await new Promise((resolve, reject) => {
-                    xhr.onload  = () => { try { resolve(JSON.parse(xhr.responseText)); } catch(e) { reject(e); } };
-                    xhr.onerror = () => reject(new Error('Tarmoq xatosi'));
-                    xhr.send(fd);
+                // Poster uchun R2 ga yuklash
+                const posterUrl = await uploadToR2(file, (loaded, total) => {
+                    const p = Math.round((loaded / total) * 90);
+                    progBar.style.width = p + '%';
+                    progTxt.textContent = Math.round(loaded/1024) + ' KB yuklandi...';
                 });
 
-                if(!result.ok) throw new Error(result.error || 'Railway xatosi');
-
                 progBar.style.width = '100%';
-                document.getElementById('kPosterUrl').value = result.url;
-                document.getElementById('posterImg').src    = result.url;
+                document.getElementById('kPosterUrl').value = posterUrl;
+                document.getElementById('posterImg').src    = posterUrl;
                 document.getElementById('posterPreview').style.display = 'block';
                 progWrap.style.display = 'none';
-                showToast('✅ Poster Railway ga yuklandi!', 'success');
+                showToast('✅ Poster R2 ga yuklandi!', 'success');
 
             } catch(err) {
                 progWrap.style.display = 'none';
@@ -5042,38 +5113,18 @@ async function doLogin(){
             doneEl.style.display = 'none';
             bar.style.width = '2%';
             pct.textContent = '2%';
-            txt.textContent = `Railway ga yuklanmoqda (${mb} MB)...`;
+            txt.textContent = `R2 ga yuklanmoqda (${mb} MB)...`;
 
             try {
-                const fd = new FormData();
-                fd.append('video', file);
-                fd.append('part_num', String(n));
-
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', RAILWAY_API + '/api/upload/video');
-                xhr.setRequestHeader('x-admin-token', ADMIN_TOKEN_H);
-                xhr.timeout = 600000; // 10 daqiqa
-
-                xhr.upload.onprogress = (e) => {
-                    if(e.lengthComputable) {
-                        const p = Math.max(3, Math.round((e.loaded / e.total) * 92));
-                        bar.style.transition = 'width 0.3s';
-                        bar.style.width = p + '%';
-                        pct.textContent = p + '%';
-                        txt.textContent = `${(e.loaded/1024/1024).toFixed(1)} / ${mb} MB`;
-                    }
-                };
-
-                const result = await new Promise((resolve, reject) => {
-                    xhr.onload    = () => { try { resolve(JSON.parse(xhr.responseText)); } catch(e) { reject(e); } };
-                    xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
-                    xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
-                    xhr.send(fd);
+                const videoUrl = await uploadToR2(file, (loaded, total) => {
+                    const p = Math.max(3, Math.round((loaded / total) * 98));
+                    bar.style.transition = 'width 0.3s';
+                    bar.style.width = p + '%';
+                    pct.textContent = p + '%';
+                    txt.textContent = `${(loaded/1024/1024).toFixed(1)} / ${mb} MB`;
                 });
 
-                if(!result.ok) throw new Error(result.error || 'Railway xatosi');
-
-                setVfUrl(n, result.url);
+                setVfUrl(n, videoUrl);
                 bar.style.width = '100%';
                 pct.textContent = '100%';
                 txt.textContent = 'Tayyor!';
@@ -5081,8 +5132,8 @@ async function doLogin(){
                 setTimeout(() => {
                     progEl.style.display = 'none';
                     doneEl.style.display = 'block';
-                    if(doneTxt) doneTxt.textContent = `✅ ${file.name} (${mb} MB) — Railway da saqlandi!`;
-                    showToast(`✅ ${n}-qism Railway ga yuklandi!`, 'success');
+                    if(doneTxt) doneTxt.textContent = `✅ ${file.name} (${mb} MB) — R2 da saqlandi!`;
+                    showToast(`✅ ${n}-qism R2 ga yuklandi!`, 'success');
                 }, 400);
 
             } catch(err) {
