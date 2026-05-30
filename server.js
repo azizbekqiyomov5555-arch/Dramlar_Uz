@@ -2,12 +2,22 @@ const express  = require('express');
 const { Pool } = require('pg');
 const multer   = require('multer');
 const cors     = require('cors');
-const https    = require('https');
-const http     = require('http');
 require('dotenv').config();
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+// To'liq CORS sozlamasi
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-admin-token, Authorization, Accept');
+  res.header('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -65,7 +75,6 @@ const upload = multer({
 
 /* ═══════════════════════════════════════
    VIDEO YUKLASH  POST /api/upload/video
-   Galereyadан fayl → Railway → PostgreSQL (BYTEA)
 ═══════════════════════════════════════ */
 app.post('/api/upload/video', upload.single('video'), async (req, res) => {
   if (!checkAdmin(req, res)) return;
@@ -82,9 +91,10 @@ app.post('/api/upload/video', upload.single('video'), async (req, res) => {
     );
 
     const videoId = rows[0].id;
-    const videoUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN
+    const base = process.env.RAILWAY_PUBLIC_DOMAIN
       ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN
-      : 'https://dramlaruz-production-1d04.up.railway.app'}/api/video/${videoId}`;
+      : 'https://dramlaruz-production-1d04.up.railway.app';
+    const videoUrl = `${base}/api/video/${videoId}`;
 
     res.json({ ok: true, video_id: videoId, url: videoUrl });
   } catch (e) {
@@ -95,7 +105,6 @@ app.post('/api/upload/video', upload.single('video'), async (req, res) => {
 
 /* ═══════════════════════════════════════
    POSTER YUKLASH  POST /api/upload/poster
-   Galereyadан rasm → Railway → PostgreSQL
 ═══════════════════════════════════════ */
 app.post('/api/upload/poster', upload.single('poster'), async (req, res) => {
   if (!checkAdmin(req, res)) return;
@@ -111,12 +120,14 @@ app.post('/api/upload/poster', upload.single('poster'), async (req, res) => {
     );
 
     const imgId = rows[0].id;
-    const imgUrl = `${process.env.RAILWAY_PUBLIC_DOMAIN
+    const base = process.env.RAILWAY_PUBLIC_DOMAIN
       ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN
-      : 'https://dramlaruz-production-1d04.up.railway.app'}/api/image/${imgId}`;
+      : 'https://dramlaruz-production-1d04.up.railway.app';
+    const imgUrl = `${base}/api/image/${imgId}`;
 
     res.json({ ok: true, image_id: imgId, url: imgUrl });
   } catch (e) {
+    console.error('Poster upload error:', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -205,6 +216,23 @@ app.post('/api/movies', async (req, res) => {
          videos=$7, video_keys=$8, episode_prices=$9
        RETURNING *`,
       [id, title, genre||'', price||0, poster||'', posterId||'',
+       JSON.stringify(videos||[]), JSON.stringify(videoKeys||[]), JSON.stringify(episodePrices||{})]
+    );
+    res.json({ ok: true, movie: rows[0] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.put('/api/movies/:id', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const { title, genre, price, poster, posterId, videos, videoKeys, episodePrices } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE movies SET title=$2, genre=$3, price=$4, poster=$5, poster_id=$6,
+         videos=$7, video_keys=$8, episode_prices=$9
+       WHERE id=$1 RETURNING *`,
+      [req.params.id, title, genre||'', price||0, poster||'', posterId||'',
        JSON.stringify(videos||[]), JSON.stringify(videoKeys||[]), JSON.stringify(episodePrices||{})]
     );
     res.json({ ok: true, movie: rows[0] });
