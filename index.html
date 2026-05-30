@@ -7419,22 +7419,49 @@ async function doLogin(){
             }
 
             if(on) {
-                // 1. CSS himoya — user-select + video controls + iframe ustidan shaffof qatlam
+                // 1. Kuchli CSS himoya
                 cpStyle.textContent = `
-                    * { -webkit-user-select:none!important; user-select:none!important; -webkit-touch-callout:none!important; }
-                    video { pointer-events:none!important; }
-                    video::-webkit-media-controls, video::-webkit-media-controls-enclosure, video::-webkit-media-controls-panel { display:none!important; }
-                    img { -webkit-user-drag:none!important; user-drag:none!important; pointer-events:none!important; }
-                    iframe { -webkit-user-select:none!important; }
+                    * {
+                        -webkit-user-select: none !important;
+                        user-select: none !important;
+                        -webkit-touch-callout: none !important;
+                        -webkit-tap-highlight-color: transparent !important;
+                    }
+                    body {
+                        -webkit-user-select: none !important;
+                        user-select: none !important;
+                    }
+                    video {
+                        pointer-events: none !important;
+                        -webkit-user-select: none !important;
+                    }
+                    video::-webkit-media-controls,
+                    video::-webkit-media-controls-enclosure,
+                    video::-webkit-media-controls-panel,
+                    video::-webkit-media-controls-play-button,
+                    video::-webkit-media-controls-fullscreen-button {
+                        display: none !important;
+                        -webkit-appearance: none !important;
+                    }
+                    img {
+                        -webkit-user-drag: none !important;
+                        user-drag: none !important;
+                        pointer-events: none !important;
+                    }
+                    iframe { -webkit-user-select: none !important; }
                 `;
 
-                // 2. Overlay ko'rinadi
+                // 2. Overlay faol
                 overlay.style.display = 'block';
 
-                // 3. Visibility change — app background'ga o'tganda
+                // 3. Visibility change — background'ga o'tganda DARHOL qoraytir
                 document.addEventListener('visibilitychange', _onVisChange);
 
-                // 4. Barcha event bloklash
+                // 4. Window blur — screenshot/task switcher uchun
+                window.addEventListener('blur', _onWinBlur);
+                window.addEventListener('focus', _onWinFocus);
+
+                // 5. Barcha event bloklash
                 document.addEventListener('contextmenu', _blockCtx, true);
                 document.addEventListener('keydown', _blockKeys, true);
                 document.addEventListener('dragstart', _blockCtx, true);
@@ -7442,45 +7469,56 @@ async function doLogin(){
                 document.addEventListener('copy', _blockCtx, true);
                 document.addEventListener('cut', _blockCtx, true);
 
-                // 5. Video himoya
+                // 6. Video himoya
                 _protectVideos(true);
 
-                // 6. Screenshot detection
+                // 7. Screenshot detection (o'lcham o'zgarishi)
                 _startScreenshotDetection();
 
-                // 7. Telegram Kanalga saqlashni bloklash
+                // 8. Telegram WebApp maxsus sozlamalar
                 try {
                     if(window.Telegram?.WebApp) {
+                        // Mini app yopilishini tasdiqlash
                         Telegram.WebApp.enableClosingConfirmation?.();
-                        // Telegram WebApp ichida forward/save ni cheklash
+                        // Vertical swipe bilan yopishni o'chirish
                         Telegram.WebApp.disableVerticalSwipes?.();
-                        // Telegram media download ni o'chirish
-                        if(Telegram.WebApp.isVersionAtLeast?.('6.9')) {
-                            Telegram.WebApp.lockOrientation?.();
+                        // Fullscreen so'rash — Telegram screenshot trigger bo'lmasin
+                        if(Telegram.WebApp.requestFullscreen) {
+                            try { Telegram.WebApp.requestFullscreen(); } catch(e){}
+                        }
+                        // Telegram 8.0+ — kontentni himoyalash bayrog'i
+                        if(Telegram.WebApp.isVersionAtLeast?.('8.0')) {
+                            try { Telegram.WebApp.lockOrientation?.(); } catch(e){}
                         }
                     }
                 } catch(e){}
 
-                // 8. Iframe ustiga himoya qatlami (Telegram kanal vidyosi ustida)
+                // 9. Iframe ustiga himoya qatlami
                 _addIframeProtectionLayer(true);
 
-                // 9. Saqlash tugmasini o'chirish (Telegram WebApp)
+                // 10. Iframe sandbox — media saqlashni cheklash
                 try {
                     document.querySelectorAll('iframe').forEach(fr => {
                         fr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-                        // Iframe kontentini saqlashni qiyinlashtirish
+                        if(!fr.parentNode) return;
                         const fakeEl = document.createElement('div');
                         fakeEl.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;pointer-events:none;background:transparent;';
                         fakeEl.id = '_iframeBlocker_' + Math.random().toString(36).slice(2);
-                        fr.parentNode?.appendChild(fakeEl);
+                        fr.parentNode.appendChild(fakeEl);
                     });
                 } catch(e) {}
+
+                // 11. ASOSIY USUL: har 80ms da ekranni momentan qoraytirish
+                // Screenshot olinsa qora tushadi chunki render paytida overlay ko'rinadi
+                _startRapidFlash();
 
             } else {
                 cpStyle.textContent = '';
                 overlay.style.display = 'none';
                 overlay.style.opacity = '0';
                 document.removeEventListener('visibilitychange', _onVisChange);
+                window.removeEventListener('blur', _onWinBlur);
+                window.removeEventListener('focus', _onWinFocus);
                 document.removeEventListener('contextmenu', _blockCtx, true);
                 document.removeEventListener('keydown', _blockKeys, true);
                 document.removeEventListener('dragstart', _blockCtx, true);
@@ -7489,10 +7527,47 @@ async function doLogin(){
                 document.removeEventListener('cut', _blockCtx, true);
                 _protectVideos(false);
                 _stopScreenshotDetection();
+                _stopRapidFlash();
                 _addIframeProtectionLayer(false);
-                // iframe blockerlarni tozalash
                 document.querySelectorAll('[id^="_iframeBlocker_"]').forEach(el => el.remove());
             }
+        }
+
+        // Tez-tez qoraytirish — screenshot uchun trap
+        let _rapidFlashTimer = null;
+        let _rfPhase = false;
+        function _startRapidFlash() {
+            if(_rapidFlashTimer) return;
+            const ov = document.getElementById('_cpOverlay');
+            if(!ov) return;
+            // requestAnimationFrame orqali har frame'da alternativ qoraytirish
+            // Screenshot olish uchun 1 frame kifoya — u frame qora bo'ladi
+            let frameCount = 0;
+            function _rfLoop() {
+                if(!contentProtectEnabled) { _stopRapidFlash(); return; }
+                frameCount++;
+                // Har 6-frame (≈100ms) bir marta 1-frame davomida qorayt
+                if(frameCount % 6 === 0) {
+                    ov.style.opacity = '1';
+                    ov.style.display = 'block';
+                    requestAnimationFrame(() => {
+                        ov.style.opacity = '0';
+                    });
+                }
+                _rapidFlashTimer = requestAnimationFrame(_rfLoop);
+            }
+            _rapidFlashTimer = requestAnimationFrame(_rfLoop);
+        }
+        function _stopRapidFlash() {
+            if(_rapidFlashTimer) { cancelAnimationFrame(_rapidFlashTimer); _rapidFlashTimer = null; }
+            const ov = document.getElementById('_cpOverlay');
+            if(ov) { ov.style.opacity = '0'; ov.style.display = 'none'; }
+        }
+
+        function _onWinFocus() {
+            if(!contentProtectEnabled) return;
+            const ov = document.getElementById('_cpOverlay');
+            if(ov) { ov.style.opacity = '0'; }
         }
 
         // Iframe ustiga shaffof himoya qatlami (Telegram kanal video saqlashni bloklaydi)
@@ -7519,51 +7594,72 @@ async function doLogin(){
         let _lastW = window.innerWidth, _lastH = window.innerHeight;
 
         function _startScreenshotDetection() {
+            _lastW = window.innerWidth; _lastH = window.innerHeight;
+            // Har 80ms tekshir — ekran o'lchami o'zgarsa (notification bar, screenshot toolbar)
             _ssDetectInterval = setInterval(() => {
                 const w = window.innerWidth, h = window.innerHeight;
-                if(w !== _lastW || h !== _lastH) { _lastW = w; _lastH = h; _flashBlack(200); }
-            }, 150);
+                if(w !== _lastW || h !== _lastH) {
+                    _lastW = w; _lastH = h;
+                    _flashBlack(1500);
+                }
+            }, 80);
             window.addEventListener('keyup', _onKeyUp);
             // Android: screenshot paytida focus yo'qoladi
             window.addEventListener('blur', _onWinBlur);
+            // iOS: screenshot paytida resize bo'ladi ba'zan
+            window.addEventListener('resize', _onResize);
+        }
+
+        function _onResize() {
+            if(!contentProtectEnabled) return;
+            _flashBlack(1500);
         }
 
         function _stopScreenshotDetection() {
             clearInterval(_ssDetectInterval);
             window.removeEventListener('keyup', _onKeyUp);
             window.removeEventListener('blur', _onWinBlur);
+            window.removeEventListener('resize', _onResize);
         }
 
         let _blurTimer = null;
         function _onWinBlur() {
             if(!contentProtectEnabled) return;
-            // Focus yo'qoldi — screenshot yoki app switch
-            _flashBlack(600);
+            // Focus yo'qoldi — screenshot yoki app switch — DARHOL va UZOQ qorayt
+            _flashBlack(3000);
         }
 
         function _onKeyUp(e) {
-            if(e.key === 'PrintScreen' || e.keyCode === 44) _flashBlack(300);
+            if(e.key === 'PrintScreen' || e.keyCode === 44) _flashBlack(800);
         }
 
         function _onVisChange() {
             if(!contentProtectEnabled) return;
             if(document.hidden) {
-                _flashBlack(800);
+                // Background'ga o'tdi — ekranni qorayt va video to'xtat
+                _flashBlack(4000);
                 const v = document.getElementById('mainVideo');
                 if(v && !v.paused) v.pause();
+            } else {
+                // Qaytib keldi — biroz kutib qoraytishni o'chir
+                setTimeout(() => {
+                    const ov = document.getElementById('_cpOverlay');
+                    if(ov) { ov.style.opacity = '0'; ov.style.pointerEvents = 'none'; }
+                }, 300);
             }
         }
 
         function _flashBlack(ms) {
             const ov = document.getElementById('_cpOverlay');
             if(!ov) return;
+            ov.style.display = 'block';
             ov.style.opacity = '1';
             ov.style.pointerEvents = 'all';
             clearTimeout(_blurTimer);
             _blurTimer = setTimeout(() => {
                 ov.style.opacity = '0';
                 ov.style.pointerEvents = 'none';
-            }, ms || 300);
+            }, ms || 500);
         }
 
         function _protectVideos(on) {
