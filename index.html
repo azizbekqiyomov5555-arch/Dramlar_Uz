@@ -2359,71 +2359,20 @@ async function doLogin(){
         const RAILWAY_API   = window.RAILWAY_API_URL   || 'https://dramlaruz-production-1d04.up.railway.app';
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
-        // ===== CLOUDFLARE R2 SOZLAMALARI =====
-        const R2_ACCOUNT_ID    = 'bcca12c7edccf2a1633c58ff9e4d202d';
-        const R2_ACCESS_KEY_ID = '2519178aed5d28a4f4d81922d2a14d9d';
-        const R2_SECRET_KEY    = 'a827f95cd5931c3bd532b6f35e41d7e4decccea3c';
-        const R2_BUCKET        = 'kino-drama';
-        const R2_PUBLIC_URL    = 'https://pub-271e3540fa7f4b0a85bfcf9bb56b3ae2.r2.dev';
-        const R2_ENDPOINT      = `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+        // ===== CLOUDFLARE R2 WORKER ORQALI YUKLASH =====
+        // Worker URL - pastda yaratilgan worker manzili
+        const R2_WORKER_URL = 'https://kino-drama-upload.azizbekqiyomov55555.workers.dev';
 
-        // R2 ga fayl yuklash funksiyasi (S3 API orqali)
         async function uploadToR2(file, onProgress) {
-            const fileName = `videos/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-            const uploadUrl = `${R2_ENDPOINT}/${R2_BUCKET}/${fileName}`;
+            const ext = file.name.split('.').pop();
+            const isVideo = file.type.startsWith('video/');
+            const folder = isVideo ? 'videos' : 'posters';
+            const fileName = `${folder}/${Date.now()}.${ext}`;
+            const uploadUrl = `${R2_WORKER_URL}/${fileName}`;
 
-            // HMAC-SHA256 imzo yaratish uchun yordamchi funksiyalar
-            async function hmacSHA256(key, data) {
-                const k = (typeof key === 'string') ? new TextEncoder().encode(key) : key;
-                const cryptoKey = await crypto.subtle.importKey('raw', k, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
-                return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data)));
-            }
-            async function sha256(data) {
-                const buf = (typeof data === 'string') ? new TextEncoder().encode(data) : data;
-                return new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
-            }
-            function toHex(buf) { return Array.from(buf).map(b=>b.toString(16).padStart(2,'0')).join(''); }
-
-            const now = new Date();
-            const dateStr = now.toISOString().slice(0,10).replace(/-/g,'');
-            const amzDate = now.toISOString().replace(/[:-]|\.\d+/g,'').slice(0,15)+'Z';
-            const region = 'auto';
-            const service = 's3';
-
-            // Fayl hash
-            const fileHash = toHex(await sha256(await file.arrayBuffer()));
-
-            const headers = {
-                'host': `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-                'x-amz-content-sha256': fileHash,
-                'x-amz-date': amzDate,
-                'content-type': file.type || 'application/octet-stream',
-            };
-
-            const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
-            const canonicalHeaders = `content-type:${headers['content-type']}\nhost:${headers['host']}\nx-amz-content-sha256:${headers['x-amz-content-sha256']}\nx-amz-date:${headers['x-amz-date']}\n`;
-            const canonicalRequest = `PUT\n/${R2_BUCKET}/${fileName}\n\n${canonicalHeaders}\n${signedHeaders}\n${fileHash}`;
-            const credentialScope = `${dateStr}/${region}/${service}/aws4_request`;
-            const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${toHex(await sha256(canonicalRequest))}`;
-
-            const signingKey = await hmacSHA256(
-                await hmacSHA256(
-                    await hmacSHA256(
-                        await hmacSHA256('AWS4' + R2_SECRET_KEY, dateStr),
-                        region),
-                    service),
-                'aws4_request');
-            const signature = toHex(await hmacSHA256(signingKey, stringToSign));
-
-            const authorization = `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY_ID}/${credentialScope},SignedHeaders=${signedHeaders},Signature=${signature}`;
-
-            // XHR bilan yuklash (progress uchun)
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('PUT', uploadUrl);
-                xhr.setRequestHeader('Authorization', authorization);
-                xhr.setRequestHeader('x-amz-date', amzDate);
-                xhr.setRequestHeader('x-amz-content-sha256', fileHash);
                 xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
                 xhr.timeout = 1800000; // 30 daqiqa
 
@@ -2431,18 +2380,20 @@ async function doLogin(){
                     if(e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
                 };
                 xhr.onload = () => {
-                    if(xhr.status === 200) {
-                        resolve(`${R2_PUBLIC_URL}/${fileName}`);
-                    } else {
-                        reject(new Error(`R2 xatosi: ${xhr.status} ${xhr.responseText}`));
+                    try {
+                        const res = JSON.parse(xhr.responseText);
+                        if(res.ok) resolve(res.url);
+                        else reject(new Error(res.error || 'Xatolik'));
+                    } catch(e) {
+                        reject(new Error('Javob xatosi: ' + xhr.responseText));
                     }
                 };
                 xhr.onerror = () => reject(new Error('Tarmoq xatosi'));
-                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (30 daqiqa)'));
+                xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
                 xhr.send(file);
             });
         }
-        // ===== R2 SOZLAMALARI TUGADI =====
+        // ===== R2 WORKER TUGADI =====
 
         let cachedMovies = [];
         let moviesCacheTime = 0;
