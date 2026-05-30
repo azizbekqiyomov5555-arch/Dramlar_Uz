@@ -653,6 +653,16 @@ async function doLogin(){
 
     <div id="toastBox"></div>
 
+    <!-- BLOKLANGAN FOYDALANUVCHI OYNASI -->
+    <div id="blockedOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:99999; flex-direction:column; align-items:center; justify-content:center; padding:30px; box-sizing:border-box;">
+        <div style="font-size:72px; margin-bottom:20px;">🚫</div>
+        <div style="font-size:26px; font-weight:900; color:#ff453a; margin-bottom:12px; text-align:center;">Siz bloklangansiz</div>
+        <div style="font-size:15px; color:#888; text-align:center; line-height:1.7; max-width:320px;">
+            Siz admin tomonidan bu ilovadan bloklangansiz.<br><br>
+            <span style="color:#555; font-size:13px;">Muammo bo'lsa admin bilan bog'laning.</span>
+        </div>
+    </div>
+
     <!-- SPLASH SCREEN -->
     <div id="splashScreen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden;">
 
@@ -1103,20 +1113,6 @@ async function doLogin(){
                 </div>
             </div>
 
-            <!-- RAILWAY API SOZLAMALARI -->
-            <div class="modal-content" id="railwaySettingsBox">
-                <h3>🚂 Railway API Sozlamalari</h3>
-                <div style="font-size:12px;color:#888;margin-bottom:12px;">Backend server URL va admin tokenini kiriting</div>
-                <div style="font-size:11px;color:#00ff73;font-weight:700;margin-bottom:6px;">SERVER URL:</div>
-                <input type="text" id="railwayApiUrl" placeholder="https://dramlaruz-production-1d04.up.railway.app" style="margin-bottom:10px;">
-                <div style="font-size:11px;color:#00ff73;font-weight:700;margin-bottom:6px;">ADMIN TOKEN:</div>
-                <input type="password" id="railwayAdminToken" placeholder="kino_admin_2025_secret" style="margin-bottom:14px;">
-                <button class="btn-adm" onclick="saveRailwaySettings()" style="font-size:14px;padding:14px;">
-                    💾 SOZLAMALARNI SAQLASH
-                </button>
-                <div id="railwaySaveMsg" style="text-align:center;font-size:13px;font-weight:700;margin-top:8px;min-height:18px;color:var(--accent);"></div>
-            </div>
-
             <div class="modal-content">
                 <h3>🎬 Yangi Kino Joylash</h3>
                 <input type="text" id="kTitle" placeholder="Kino nomi *">
@@ -1184,6 +1180,7 @@ async function doLogin(){
                     <div style="background:#0d0d0d; border:1.5px solid #2a2a2a; border-radius:14px; padding:14px; margin-bottom:14px;">
                         <div style="font-size:12px; color:#888; font-weight:700;">FOYDALANUVCHI</div>
                         <div id="balMgmtName" style="font-size:16px; font-weight:900; margin-top:4px;"></div>
+                        <div id="balMgmtBlockedBadge" style="display:none; margin-top:6px; background:#3a0000; border:1px solid #ff453a; border-radius:8px; padding:4px 10px; font-size:12px; color:#ff453a; font-weight:900; display:inline-block;">🚫 BLOKLANGAN</div>
                         <div style="font-size:12px; color:#888; margin-top:8px; font-weight:700;">JORIY BALANS</div>
                         <div id="balMgmtCurrent" style="font-size:26px; font-weight:900; color:var(--accent); margin-top:2px;"></div>
                     </div>
@@ -1191,6 +1188,10 @@ async function doLogin(){
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:0;">
                         <button onclick="adminAddBal()" style="background:linear-gradient(135deg,#00ff73,#00cc5c); color:#000; border:none; padding:16px; border-radius:12px; font-weight:900; font-size:15px;">+ QO'SHISH</button>
                         <button onclick="adminSubBal()" style="background:linear-gradient(135deg,#ff453a,#cc2a20); color:#fff; border:none; padding:16px; border-radius:12px; font-weight:900; font-size:15px;">− AYIRISH</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+                        <button id="blockUserBtn" onclick="adminBlockUser()" style="background:linear-gradient(135deg,#3a0000,#5a0000); color:#ff453a; border:1.5px solid #ff453a; padding:14px; border-radius:12px; font-weight:900; font-size:14px;">🚫 BLOKLASH</button>
+                        <button id="unblockUserBtn" onclick="adminUnblockUser()" style="background:linear-gradient(135deg,#003a1a,#005a28); color:#00ff73; border:1.5px solid #00ff73; padding:14px; border-radius:12px; font-weight:900; font-size:14px;">✅ BLOKDAN CHIQARISH</button>
                     </div>
                     <div id="balMgmtMsg" style="text-align:center; font-size:13px; font-weight:700; margin-top:10px; min-height:18px;"></div>
                 </div>
@@ -2033,6 +2034,18 @@ async function doLogin(){
             if(!(await db.profile.get('balance'))) await db.profile.put({key:'balance', value: 0});
             if(!(await db.profile.get('expiry'))) await db.profile.put({key:'expiry', value: 0});
 
+            // ===== BLOKLASH TEKSHIRUVI =====
+            try {
+                const all = await usersGet();
+                const key = String(currentUserId);
+                if(all && all[key] && all[key].blocked) {
+                    const ov = document.getElementById('blockedOverlay');
+                    if(ov) { ov.style.display = 'flex'; }
+                    return; // Hech narsa yuklanmasin
+                }
+            } catch(e) {}
+            // ===== END BLOKLASH =====
+
             // UI ni darhol ko'rsatamiz
             loadUI();
             loadContentProtectState();
@@ -2502,6 +2515,8 @@ async function doLogin(){
                 const bal = await db.profile.get('balance');
                 document.getElementById('balMgmtName').innerText = userInfo?.value?.name || 'Foydalanuvchi';
                 document.getElementById('balMgmtCurrent').innerText = (bal?.value || 0).toLocaleString() + " so'm";
+                const badge = document.getElementById('balMgmtBlockedBadge');
+                if(badge) badge.style.display = 'none';
                 infoEl.style.display = 'block';
                 msg.innerText = '✅ Mening hisobim';
                 msg.style.color = 'var(--accent)';
@@ -2515,9 +2530,18 @@ async function doLogin(){
                 if(u) {
                     document.getElementById('balMgmtName').innerText = u.name || 'Foydalanuvchi #' + inputId;
                     document.getElementById('balMgmtCurrent').innerText = (u.balance || 0).toLocaleString() + " so'm";
+                    // Bloklash holati
+                    const badge = document.getElementById('balMgmtBlockedBadge');
+                    if(badge) {
+                        if(u.blocked) {
+                            badge.style.display = 'inline-block';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
                     infoEl.style.display = 'block';
-                    msg.style.color = 'var(--accent)';
-                    msg.innerText = '✅ Topildi!';
+                    msg.style.color = u.blocked ? '#ff453a' : 'var(--accent)';
+                    msg.innerText = u.blocked ? '🚫 Bu foydalanuvchi bloklangan!' : '✅ Topildi!';
                 } else {
                     infoEl.style.display = 'none';
                     msg.style.color = '#ff453a';
@@ -2616,6 +2640,52 @@ async function doLogin(){
             }
         }
 
+
+        // --- BLOKLASH / BLOKDAN CHIQARISH ---
+        async function adminBlockUser() {
+            const inputId = parseInt(document.getElementById('balMgmtId').value);
+            const msg = document.getElementById('balMgmtMsg');
+            if(!inputId) { msg.style.color='#ff453a'; msg.innerText='⚠️ Avval ID kiriting!'; return; }
+            const userInfo = await db.profile.get('user_info');
+            if(inputId == (userInfo?.value?.id || currentUserId)) {
+                msg.style.color='#ff453a'; msg.innerText='❌ O\u02bcingizni bloklay olmaysiz!'; return;
+            }
+            const doBlock = async () => {
+                msg.style.color='#888'; msg.innerText='⏳ Bloklanmoqda...'; 
+                try {
+                    const all = await usersGet();
+                    const key = String(inputId);
+                    if(!all[key]) { msg.style.color='#ff453a'; msg.innerText='❌ Foydalanuvchi topilmadi!'; return; }
+                    all[key].blocked = true;
+                    all[key].lastSeen = Date.now();
+                    await usersSet(all);
+                    const badge = document.getElementById('balMgmtBlockedBadge');
+                    if(badge) badge.style.display = 'inline-block';
+                    msg.style.color='#ff453a'; msg.innerText='🚫 Foydalanuvchi bloklandi!';
+                } catch(e) { msg.style.color='#ff453a'; msg.innerText='❌ Xatolik: '+e.message; }
+            };
+            if(window.Telegram?.WebApp?.showPopup) {
+                Telegram.WebApp.showPopup({title:'Bloklash',message:'Bu foydalanuvchini bloklamoqchimisiz? U ilovaga kira olmaydi.',buttons:[{id:'yes',type:'destructive',text:'Ha, blokla'},{id:'no',type:'cancel',text:'Bekor'}]}, async btn => { if(btn==='yes') await doBlock(); });
+            } else { if(confirm('Bu foydalanuvchini bloklamoqchimisiz?')) await doBlock(); }
+        }
+
+        async function adminUnblockUser() {
+            const inputId = parseInt(document.getElementById('balMgmtId').value);
+            const msg = document.getElementById('balMgmtMsg');
+            if(!inputId) { msg.style.color='#ff453a'; msg.innerText='⚠️ Avval ID kiriting!'; return; }
+            msg.style.color='#888'; msg.innerText='⏳ Blokdan chiqarilmoqda...'; 
+            try {
+                const all = await usersGet();
+                const key = String(inputId);
+                if(!all[key]) { msg.style.color='#ff453a'; msg.innerText='❌ Foydalanuvchi topilmadi!'; return; }
+                all[key].blocked = false;
+                all[key].lastSeen = Date.now();
+                await usersSet(all);
+                const badge = document.getElementById('balMgmtBlockedBadge');
+                if(badge) badge.style.display = 'none';
+                msg.style.color='var(--accent)'; msg.innerText='✅ Foydalanuvchi blokdan chiqarildi!';
+            } catch(e) { msg.style.color='#ff453a'; msg.innerText='❌ Xatolik: '+e.message; }
+        }
         // --- SEARCH TAB ---
         let currentSearchTab = 'local';
         let ytSearchTimer = null;
