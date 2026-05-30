@@ -1167,11 +1167,9 @@ async function doLogin(){
                 <!-- Video qismlar URL -->
                 <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:4px;letter-spacing:1px;">🎥 VIDEO QISMLAR *</div>
                 <div style="font-size:11px;color:#00ff73;margin-bottom:8px;padding:10px 12px;background:#0d1f14;border-radius:10px;border:1px solid rgba(0,255,115,0.2);">
-                    📁 <b>Variant 1:</b> Video faylni tanlang — bot orqali Telegram ga yuklanadi<br>
-                    🔗 <b>Variant 2:</b> Telegram kanalga video yuklang → havolani nusxalab URL ga qo'ying<br>
-                    ▶️ <b>Variant 3:</b> YouTube video linkini to'g'ridan-to'g'ri yozing<br>
-                    📸 <b>Variant 4:</b> Instagram video/reel linkini yozing<br>
-                    <span style="color:#888;font-size:10px;">Misol: https://t.me/kanal/123 | https://youtube.com/watch?v=ID | https://www.instagram.com/reel/ID/</span>
+                    📁 <b>Variant 1:</b> Video faylni galereyadaan tanlang — Cloudflare R2 ga yuklanadi<br>
+                    🔗 <b>Variant 2:</b> To'g'ridan URL kiriting (YouTube, Telegram va h.k.)<br>
+                    <span style="color:#888;font-size:10px;">Fayl yuklangandan so'ng R2 bazasida saqlanadi va avtomatik URL olinadi</span>
                 </div>
                 <div id="vFields"></div>
                 <button class="btn-adm" style="background:#1a1a1a;color:var(--accent);border:1.5px dashed #333;margin-bottom:14px;" onclick="addVField()">＋ Qism qo'shish</button>
@@ -2359,41 +2357,77 @@ async function doLogin(){
         const RAILWAY_API   = window.RAILWAY_API_URL   || 'https://dramlaruz-production-1d04.up.railway.app';
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
-        // ===== CLOUDFLARE R2 WORKER ORQALI YUKLASH =====
-        // Worker URL - pastda yaratilgan worker manzili
-        const R2_WORKER_URL = 'https://kino-drama-upload.azizbekqiyomov55555.workers.dev';
+        // ===== CLOUDFLARE R2 SOZLAMALARI =====
+        const CF_ACCOUNT_ID  = 'bcca12c7edccf2a1633c58ff9e4d202d';
+        const CF_ACCESS_KEY  = '2519178aed5d28a4f4d81922d2a14d9d';
+        const CF_SECRET_KEY  = 'a827f95cd5931c3bd532b6f35e41d7e4decccea3c';
+        const CF_BUCKET      = 'kino-drama';
+        const CF_PUBLIC_URL  = 'https://pub-271e3540fa7f4b0a85bfcf9bb56b3ae2.r2.dev';
+        const CF_ENDPOINT    = `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
 
         async function uploadToR2(file, onProgress) {
-            const ext = file.name.split('.').pop();
-            const isVideo = file.type.startsWith('video/');
+            const ext = file.name.split('.').pop().toLowerCase();
+            const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
             const folder = isVideo ? 'videos' : 'posters';
-            const fileName = `${folder}/${Date.now()}.${ext}`;
-            const uploadUrl = `${R2_WORKER_URL}/${fileName}`;
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const key = `${folder}/${Date.now()}_${safeName}`;
+
+            // Yordamchi funksiyalar
+            const toHex = buf => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+            const sha256 = async data => crypto.subtle.digest('SHA-256', typeof data==='string'?new TextEncoder().encode(data):data);
+            const hmac = async (keyData, msg) => {
+                const k = await crypto.subtle.importKey('raw', typeof keyData==='string'?new TextEncoder().encode(keyData):keyData, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+                return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
+            };
+
+            // Fayl buffer va hash
+            const fileBuffer = await file.arrayBuffer();
+            const fileHash = toHex(await sha256(fileBuffer));
+
+            // AWS Signature v4
+            const now = new Date();
+            const ymd = now.toISOString().slice(0,10).replace(/-/g,'');
+            const amzDate = now.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'').slice(0,15)+'Z';
+            const region = 'auto';
+            const svc = 's3';
+            const host = `${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+            const ct = file.type || 'application/octet-stream';
+
+            const canonHeaders = `content-type:${ct}\nhost:${host}\nx-amz-content-sha256:${fileHash}\nx-amz-date:${amzDate}\n`;
+            const signedHdrs = 'content-type;host;x-amz-content-sha256;x-amz-date';
+            const canonReq = `PUT\n/${CF_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
+            const scope = `${ymd}/${region}/${svc}/aws4_request`;
+            const strToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${toHex(await sha256(canonReq))}`;
+
+            let sigKey = await hmac('AWS4'+CF_SECRET_KEY, ymd);
+            sigKey = await hmac(sigKey, region);
+            sigKey = await hmac(sigKey, svc);
+            sigKey = await hmac(sigKey, 'aws4_request');
+            const sig = toHex(await hmac(sigKey, strToSign));
+
+            const auth = `AWS4-HMAC-SHA256 Credential=${CF_ACCESS_KEY}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
+            const url = `${CF_ENDPOINT}/${CF_BUCKET}/${key}`;
 
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('PUT', uploadUrl);
-                xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
-                xhr.timeout = 1800000; // 30 daqiqa
+                xhr.open('PUT', url);
+                xhr.setRequestHeader('Authorization', auth);
+                xhr.setRequestHeader('Content-Type', ct);
+                xhr.setRequestHeader('x-amz-date', amzDate);
+                xhr.setRequestHeader('x-amz-content-sha256', fileHash);
+                xhr.timeout = 3600000; // 1 soat
 
-                xhr.upload.onprogress = (e) => {
-                    if(e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
-                };
+                if(onProgress) xhr.upload.onprogress = e => { if(e.lengthComputable) onProgress(e.loaded, e.total); };
                 xhr.onload = () => {
-                    try {
-                        const res = JSON.parse(xhr.responseText);
-                        if(res.ok) resolve(res.url);
-                        else reject(new Error(res.error || 'Xatolik'));
-                    } catch(e) {
-                        reject(new Error('Javob xatosi: ' + xhr.responseText));
-                    }
+                    if(xhr.status===200||xhr.status===204) resolve(`${CF_PUBLIC_URL}/${key}`);
+                    else reject(new Error(`R2 xatosi ${xhr.status}: ${xhr.responseText.slice(0,200)}`));
                 };
-                xhr.onerror = () => reject(new Error('Tarmoq xatosi'));
+                xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
                 xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
-                xhr.send(file);
+                xhr.send(fileBuffer);
             });
         }
-        // ===== R2 WORKER TUGADI =====
+        // ===== R2 SOZLAMALARI TUGADI =====
 
         let cachedMovies = [];
         let moviesCacheTime = 0;
@@ -4833,15 +4867,14 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '20%';
+            progBar.style.width = '5%';
             progTxt.textContent = 'R2 ga yuklanmoqda...';
 
             try {
-                // Poster uchun R2 ga yuklash
                 const posterUrl = await uploadToR2(file, (loaded, total) => {
-                    const p = Math.round((loaded / total) * 90);
+                    const p = Math.round((loaded / total) * 95);
                     progBar.style.width = p + '%';
-                    progTxt.textContent = Math.round(loaded/1024) + ' KB yuklandi...';
+                    progTxt.textContent = `${(loaded/1024).toFixed(0)} KB / ${(total/1024).toFixed(0)} KB`;
                 });
 
                 progBar.style.width = '100%';
@@ -4946,7 +4979,7 @@ async function doLogin(){
                         <span style="font-size:28px;">🎬</span>
                         <div style="flex:1;">
                             <div id="vfName${n}" style="font-size:14px;color:var(--accent);font-weight:900;">Video faylni tanlang</div>
-                            <div style="font-size:11px;color:#555;margin-top:2px;">Telegram bot orqali yuklanadi</div>
+                            <div style="font-size:11px;color:#555;margin-top:2px;">Cloudflare R2 ga yuklanadi</div>
                         </div>
                     </div>
                     <input type="file" id="vfFile${n}" accept="video/*" style="display:none;" onchange="uploadVideoToTelegram(this, ${n})">
@@ -5062,13 +5095,13 @@ async function doLogin(){
             nameEl.style.color = '#fff';
             progEl.style.display = 'block';
             doneEl.style.display = 'none';
-            bar.style.width = '2%';
-            pct.textContent = '2%';
+            bar.style.width = '1%';
+            pct.textContent = '1%';
             txt.textContent = `R2 ga yuklanmoqda (${mb} MB)...`;
 
             try {
                 const videoUrl = await uploadToR2(file, (loaded, total) => {
-                    const p = Math.max(3, Math.round((loaded / total) * 98));
+                    const p = Math.max(2, Math.round((loaded / total) * 98));
                     bar.style.transition = 'width 0.3s';
                     bar.style.width = p + '%';
                     pct.textContent = p + '%';
