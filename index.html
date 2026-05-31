@@ -1136,8 +1136,10 @@ async function doLogin(){
                 <input type="text" id="kGenre" placeholder="Janr (masalan: Drama koreya)">
                 <input type="number" id="kPrice" placeholder="Narxi so'm (0 = tekin)">
 
-                <!-- Poster: Galereya tanlash -> Telegram orqali URL -->
+                <!-- Poster: Galereya tanlash -> Railway ga yuklanadi -->
                 <div style="font-size:12px;color:#b46fff;font-weight:700;margin-bottom:6px;letter-spacing:1px;">🖼️ POSTER RASMI *</div>
+
+                <!-- Fayl tanlash tugmasi -->
                 <label id="posterPickLabel" style="display:flex;align-items:center;gap:14px;
                     background:linear-gradient(135deg,#1a0d1f,#111);
                     border:2px dashed rgba(180,100,255,0.4);border-radius:14px;
@@ -1148,28 +1150,28 @@ async function doLogin(){
                     <span style="font-size:30px;">🖼️</span>
                     <div style="flex:1;">
                         <div id="posterPickName" style="font-size:14px;color:#b46fff;font-weight:900;">Rasmni tanlang</div>
-                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya / Fayllar</div>
+                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya / Fayllar → Railway ga yuklanadi</div>
                     </div>
-                    <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToTelegram(this)">
+                    <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToRailway(this)">
                 </label>
+
                 <div id="posterUploadProgress" style="display:none;margin-bottom:10px;">
-                    <div style="font-size:12px;color:#888;margin-bottom:5px;" id="posterUploadTxt">Yuklanmoqda...</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:5px;" id="posterUploadTxt">Railway ga yuklanmoqda...</div>
                     <div style="background:#222;border-radius:8px;height:8px;overflow:hidden;">
                         <div id="posterUploadBar" style="height:100%;background:linear-gradient(90deg,#b46fff,#7b2fff);border-radius:8px;width:0%;transition:width 0.3s;"></div>
                     </div>
                 </div>
                 <div id="posterPreview" style="display:none;margin-bottom:10px;text-align:center;">
                     <img id="posterImg" style="max-width:100%;max-height:160px;border-radius:14px;border:1.5px solid rgba(180,100,255,0.4);object-fit:cover;">
-                    <div style="font-size:11px;color:#b46fff;margin-top:6px;font-weight:700;">✅ Poster yuklandi</div>
+                    <div style="font-size:11px;color:#b46fff;margin-top:6px;font-weight:700;">✅ Poster Railway ga yuklandi</div>
                 </div>
                 <input type="hidden" id="kPosterUrl">
 
                 <!-- Video qismlar URL -->
                 <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:4px;letter-spacing:1px;">🎥 VIDEO QISMLAR *</div>
                 <div style="font-size:11px;color:#00ff73;margin-bottom:8px;padding:10px 12px;background:#0d1f14;border-radius:10px;border:1px solid rgba(0,255,115,0.2);">
-                    📁 <b>Variant 1:</b> Video faylni galereyadaan tanlang — Cloudflare R2 ga yuklanadi<br>
-                    🔗 <b>Variant 2:</b> To'g'ridan URL kiriting (YouTube, Telegram va h.k.)<br>
-                    <span style="color:#888;font-size:10px;">Fayl yuklangandan so'ng R2 bazasida saqlanadi va avtomatik URL olinadi</span>
+                    🔗 YouTube yoki Google Drive URL kiriting<br>
+                    <span style="color:#888;font-size:10px;">Masalan: https://youtu.be/xxx  yoki  https://drive.google.com/file/d/xxx</span>
                 </div>
                 <div id="vFields"></div>
                 <button class="btn-adm" style="background:#1a1a1a;color:var(--accent);border:1.5px dashed #333;margin-bottom:14px;" onclick="addVField()">＋ Qism qo'shish</button>
@@ -4855,7 +4857,7 @@ async function doLogin(){
         function pickPosterFile(input) {}
         function previewPosterUrlLive(url) {}
 
-        async function uploadPosterToTelegram(input) {
+        async function uploadPosterToRailway(input) {
             const file = input.files[0];
             if(!file) return;
 
@@ -4867,8 +4869,8 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '5%';
-            progTxt.textContent = 'R2 ga yuklanmoqda...';
+            progBar.style.width = '10%';
+            progTxt.textContent = 'Railway ga yuklanmoqda...';
 
             try {
                 const posterUrl = await uploadToR2(file, (loaded, total) => {
@@ -4882,13 +4884,17 @@ async function doLogin(){
                 document.getElementById('posterImg').src    = posterUrl;
                 document.getElementById('posterPreview').style.display = 'block';
                 progWrap.style.display = 'none';
-                showToast('✅ Poster R2 ga yuklandi!', 'success');
+                showToast('✅ Poster Railway ga yuklandi!', 'success');
 
             } catch(err) {
                 progWrap.style.display = 'none';
                 progBar.style.width = '0%';
                 showToast('❌ Poster xatosi: ' + err.message, 'error');
             }
+        }
+
+        async function uploadPosterToTelegram(input) {
+            return uploadPosterToRailway(input);
         }
 
         // Mavjud kinoning posterini almashtirish
@@ -4970,39 +4976,8 @@ async function doLogin(){
                         <button onclick="document.getElementById('vf${n}').remove();"
                             style="background:#2a0000;color:#ff453a;border:1px solid #500;padding:6px 12px;border-radius:9px;font-weight:900;font-size:13px;">✕</button>
                     </div>
-
-                    <!-- Fayl yuklash tugmasi -->
-                    <div id="vfLabel${n}" onclick="document.getElementById('vfFile${n}').click()" style="display:flex;align-items:center;gap:12px;
-                        background:linear-gradient(135deg,#0d1f14,#111);
-                        border:2px dashed rgba(0,255,115,0.4);border-radius:14px;
-                        padding:14px;cursor:pointer;margin-bottom:8px;">
-                        <span style="font-size:28px;">🎬</span>
-                        <div style="flex:1;">
-                            <div id="vfName${n}" style="font-size:14px;color:var(--accent);font-weight:900;">Video faylni tanlang</div>
-                            <div style="font-size:11px;color:#555;margin-top:2px;">Cloudflare R2 ga yuklanadi</div>
-                        </div>
-                    </div>
-                    <input type="file" id="vfFile${n}" accept="video/*" style="display:none;" onchange="uploadVideoToTelegram(this, ${n})">
-
-                    <!-- Yuklash jarayoni -->
-                    <div id="vfProg${n}" style="display:none;margin-bottom:8px;">
-                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-bottom:4px;">
-                            <span id="vfProgTxt${n}">Yuklanmoqda...</span>
-                            <span id="vfPct${n}">0%</span>
-                        </div>
-                        <div style="background:#222;border-radius:8px;height:8px;overflow:hidden;">
-                            <div id="vfBar${n}" style="height:100%;background:linear-gradient(90deg,#00ff73,#00cc5c);border-radius:8px;width:0%;transition:width 0.3s;"></div>
-                        </div>
-                    </div>
-
-                    <!-- Tayyor bo'lgach ko'rsatish -->
-                    <div id="vfDone${n}" style="display:none;background:#0d1f14;border:1.5px solid rgba(0,255,115,0.4);border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px;color:var(--accent);font-weight:900;">
-                        ✅ <span id="vfDoneTxt${n}">Video yuklandi</span>
-                    </div>
-
-                    <!-- Yoki URL qo'lda kiriting -->
-                    <div style="font-size:11px;color:#666;margin-bottom:6px;text-align:center;">— yoki to'g'ridan URL —</div>
-                    <input type="text" id="vfUrl${n}" placeholder="https://t.me/kanal/123  yoki  https://...mp4"
+                    <div style="font-size:11px;color:#888;margin-bottom:6px;">🔗 YouTube yoki Google Drive URL</div>
+                    <input type="text" id="vfUrl${n}" placeholder="https://youtu.be/xxx  yoki  https://drive.google.com/..."
                         style="margin-bottom:4px; font-size:13px; word-break:break-all;" oninput="onVfUrlInput(${n})">
                 </div>`;
             c.appendChild(d);
