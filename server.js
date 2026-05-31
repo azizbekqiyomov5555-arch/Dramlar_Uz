@@ -262,6 +262,38 @@ app.patch('/api/movies/:id/episode-prices', async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════
+   POSTER BASE64  POST /api/upload/poster-base64
+   Telegram Mini App ichidan ishlaydi
+═══════════════════════════════════════ */
+app.post('/api/upload/poster-base64', async (req, res) => {
+  if (!checkAdmin(req, res)) return;
+  try {
+    const { base64, mimetype } = req.body;
+    if (!base64) return res.status(400).json({ ok: false, error: 'base64 kerak' });
+
+    const buffer = Buffer.from(base64, 'base64');
+    const mime = mimetype || 'image/jpeg';
+
+    const { rows } = await pool.query(
+      `INSERT INTO video_files (part_num, data, mimetype, size)
+       VALUES (0, $1, $2, $3) RETURNING id`,
+      [buffer, mime, buffer.length]
+    );
+
+    const imgId = rows[0].id;
+    const base = process.env.RAILWAY_PUBLIC_DOMAIN
+      ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN
+      : 'https://dramlaruz-production-1d04.up.railway.app';
+    const imgUrl = `${base}/api/image/${imgId}`;
+
+    res.json({ ok: true, image_id: imgId, url: imgUrl });
+  } catch (e) {
+    console.error('Poster base64 upload error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/health', (_, res) => res.json({ ok: true, time: new Date() }));
 
 app.listen(PORT, () => console.log(`🎬 KinoDrama API: http://localhost:${PORT}`));
