@@ -4869,19 +4869,28 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '20%';
-            progTxt.textContent = 'Railway serveriga yuklanmoqda...';
+            progBar.style.width = '10%';
+            progTxt.textContent = 'Rasm o\'qilmoqda...';
 
             try {
-                const formData = new FormData();
-                formData.append('poster', file);
+                // Faylni base64 ga o'giramiz
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = () => reject(new Error('Fayl o\'qilmadi'));
+                    reader.readAsDataURL(file);
+                });
 
                 progBar.style.width = '50%';
+                progTxt.textContent = 'Railway ga yuklanmoqda...';
 
-                const res = await fetch(`${RAILWAY_API}/api/upload/poster`, {
+                const res = await fetch(`${RAILWAY_API}/api/upload/poster-base64`, {
                     method: 'POST',
-                    headers: { 'x-admin-token': ADMIN_TOKEN_H },
-                    body: formData
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': ADMIN_TOKEN_H
+                    },
+                    body: JSON.stringify({ base64, mimetype: file.type || 'image/jpeg' })
                 });
 
                 const data = await res.json();
@@ -4913,12 +4922,19 @@ async function doLogin(){
             if(!file) return;
             showToast('⏳ Yangi poster yuklanmoqda...', '');
             try {
-                const formData = new FormData();
-                formData.append('poster', file);
-                const res = await fetch(`${RAILWAY_API}/api/upload/poster`, {
+                const base64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = () => reject(new Error('Fayl o\'qilmadi'));
+                    reader.readAsDataURL(file);
+                });
+                const res = await fetch(`${RAILWAY_API}/api/upload/poster-base64`, {
                     method: 'POST',
-                    headers: { 'x-admin-token': ADMIN_TOKEN_H },
-                    body: formData
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-token': ADMIN_TOKEN_H
+                    },
+                    body: JSON.stringify({ base64, mimetype: file.type || 'image/jpeg' })
                 });
                 const data = await res.json();
                 if(!data.ok) throw new Error(data.error || 'Server xatosi');
