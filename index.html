@@ -1966,10 +1966,34 @@ async function doLogin(){
                 } catch(_) {
                     try { localStorage.removeItem('kdp_movies_backup'); } catch(__) {}
                 }
+                // 5) Purchased_episodes ni cheklaymiz
+                try {
+                    const pe = await db.purchased_episodes.toArray();
+                    if(pe.length > 200) {
+                        const toDel = pe.slice(0, pe.length - 200).map(t => t.id);
+                        await db.purchased_episodes.bulkDelete(toDel);
+                    }
+                } catch(_) {}
                 console.log('[heal] storage cleaned, reason:', reason);
             } finally {
                 setTimeout(() => { window._storageHealing = false; }, 1500);
             }
+        }
+
+        // Chuqur tozalash — barcha keraksiz ma'lumotlarni o'chirish
+        async function deepCleanStorage() {
+            try { await db.video_blobs.clear(); } catch(_) {}
+            try { await db.profile.delete('movies_cache'); } catch(_) {}
+            try { await db.trxs.clear(); } catch(_) {}
+            try { await db.history.clear(); } catch(_) {}
+            try { localStorage.removeItem('kdp_movies_backup'); } catch(_) {}
+            try { localStorage.removeItem('kdp_chat_history'); } catch(_) {}
+            // Barcha tg_chat_ kalitlarini o'chirish
+            try {
+                const keys = Object.keys(localStorage).filter(k => k.startsWith('tg_') || k.startsWith('kdp_chat'));
+                keys.forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
+            } catch(_) {}
+            console.log('[deepClean] done');
         }
 
         // Xato matni "No space left" / "could not extend file" bo'lsa — silliq tuzatamiz
@@ -4869,10 +4893,17 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '10%';
-            progTxt.textContent = 'Rasm o\'qilmoqda...';
+            progBar.style.width = '5%';
+            progTxt.textContent = 'Xotira tozalanmoqda...';
+
+            // Avval xotirani tozalaymiz
+            try { await deepCleanStorage(); } catch(_) {}
+            await healStorage('beforeUpload');
 
             try {
+                progBar.style.width = '10%';
+                progTxt.textContent = 'Rasm o\'qilmoqda...';
+
                 // Faylni base64 ga o'giramiz
                 const base64 = await new Promise((resolve, reject) => {
                     const reader = new FileReader();
