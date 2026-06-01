@@ -1652,9 +1652,32 @@ async function doLogin(){
         </div>
 
         <!-- 2x tap: -10s -->
-        <div id="seekLeft" style="position:absolute;left:0;top:0;width:35%;height:100%;z-index:3015;"></div>
+        <div id="seekLeft" style="position:absolute;left:0;top:0;width:30%;height:100%;z-index:3015;"></div>
+        <!-- Center tap: play/pause -->
+        <div id="seekCenter" onclick="toggleMainVideo()" style="position:absolute;left:30%;top:0;width:40%;height:100%;z-index:3015;"></div>
         <!-- 2x tap: +10s -->
-        <div id="seekRight" style="position:absolute;right:0;top:0;width:35%;height:100%;z-index:3015;"></div>
+        <div id="seekRight" style="position:absolute;right:0;top:0;width:30%;height:100%;z-index:3015;"></div>
+
+        <!-- Play/pause flash indicator -->
+        <div id="playPauseFeedback" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:3028;pointer-events:none;opacity:0;transition:opacity 0.25s;background:rgba(0,0,0,0.55);border-radius:50%;width:70px;height:70px;display:flex;align-items:center;justify-content:center;">
+            <svg id="ppIcon" width="34" height="34" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+
+        <!-- Custom bottom controls for direct video -->
+        <div id="directControls" style="display:none;position:absolute;bottom:32px;left:50%;transform:translateX(-50%);z-index:3040;pointer-events:auto;white-space:nowrap;">
+            <div style="display:inline-flex;align-items:center;gap:16px;background:rgba(0,0,0,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:50px;padding:10px 24px;border:1px solid rgba(255,255,255,0.15);">
+                <div onclick="seekVideo(-10)" style="cursor:pointer;">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 6C10.477 6 6 10.477 6 16s4.477 10 10 10 10-4.477 10-10" stroke="white" stroke-width="1.8" stroke-linecap="round"/><path d="M16 6l-4 4 4 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="16" y="20" text-anchor="middle" fill="white" font-size="7" font-weight="bold" font-family="-apple-system,sans-serif">10</text></svg>
+                </div>
+                <div onclick="toggleMainVideo()" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,0.18);border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                    <svg id="directIconPlay" width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="directIconPause" width="22" height="22" viewBox="0 0 24 24" fill="white" style="display:none;"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                </div>
+                <div onclick="seekVideo(10)" style="cursor:pointer;">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 6C21.523 6 26 10.477 26 16s-4.477 10-10 10S6 21.523 6 16" stroke="white" stroke-width="1.8" stroke-linecap="round"/><path d="M16 6l4 4-4 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><text x="16" y="20" text-anchor="middle" fill="white" font-size="7" font-weight="bold" font-family="-apple-system,sans-serif">10</text></svg>
+                </div>
+            </div>
+        </div>
 
         <!-- Pastki o'ng: to'liq ekran tugmasi (YouTube embed ustida) -->
         <div id="fsBtnOverlay" onclick="enterFullscreenLandscape()" style="display:none;position:absolute;bottom:0;right:0;width:60px;height:50px;z-index:3020;cursor:pointer;background:transparent;"></div>
@@ -1663,7 +1686,7 @@ async function doLogin(){
         <div id="seekFeedback" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:3028;pointer-events:none;opacity:0;transition:opacity 0.3s;background:rgba(0,0,0,0.65);border-radius:14px;padding:10px 20px;font-size:17px;font-weight:900;color:#00ff73;white-space:nowrap;"></div>
 
         <!-- Normal video player -->
-        <video id="mainVideo" style="width:100%; height:100%; display:block;" playsinline controls></video>
+        <video id="mainVideo" style="width:100%; height:100%; display:block;" playsinline></video>
 
         <!-- Telegram kanal video embed (t.me havolalar uchun) -->
         <iframe id="tgEmbedFrame"
@@ -4498,7 +4521,7 @@ async function doLogin(){
                         v.style.display = 'block';
                         v.src = streamUrl;
                         v.autoplay = true;
-                        v.controls = true;
+                        v.controls = false;
                         v.setAttribute('controlslist', 'nodownload noremoteplayback');
                         v.setAttribute('disablepictureinpicture', '');
                         v.play().catch(() => {});
@@ -4586,7 +4609,7 @@ async function doLogin(){
                                 showVideoError('Video muddati o\'tgan. Kinoni qayta saqlang yoki admin bilan bog\'laning.');
                             };
                             v.src = freshUrl;
-                            v.controls = true;
+                            v.controls = false;
                             v.autoplay = true;
                             v.setAttribute('controlslist', 'nodownload noremoteplayback');
                             v.setAttribute('disablepictureinpicture', '');
@@ -4613,7 +4636,7 @@ async function doLogin(){
                             v.play().catch(() => {});
                         };
                         v.src = freshUrl;
-                        v.controls = true;
+                        v.controls = false;
                         v.autoplay = true;
                         v.setAttribute('controlslist', 'nodownload noremoteplayback');
                         v.setAttribute('disablepictureinpicture', '');
@@ -4715,13 +4738,16 @@ async function doLogin(){
             // Seek div'lari faqat oddiy video uchun — iframe da touch eventlarni bloklamaydi
             const seekL = document.getElementById('seekLeft');
             const seekR = document.getElementById('seekRight');
+            const dcc = document.getElementById('directControls');
             if(info.type === 'direct' || info.type === 'tgfile' || info.type === 'tgfile_legacy') {
                 if(seekL) seekL.style.pointerEvents = 'auto';
                 if(seekR) seekR.style.pointerEvents = 'auto';
+                if(dcc) dcc.style.display = 'block';
             } else {
                 // YouTube/Instagram/Telegram: seek div'larini o'chiramiz — iframe o'z kontrollariga ega
                 if(seekL) seekL.style.pointerEvents = 'none';
                 if(seekR) seekR.style.pointerEvents = 'none';
+                if(dcc) dcc.style.display = 'none';
             }
 
             showWatermarks();
@@ -5334,6 +5360,8 @@ async function doLogin(){
             if(gdTapLayer) gdTapLayer.style.display = 'none';
             const gcc = document.getElementById('gdCustomControls');
             if(gcc) gcc.style.display = 'none';
+            const dcc = document.getElementById('directControls');
+            if(dcc) dcc.style.display = 'none';
             // iframe ni normal holatga qaytarish
             const ifrReset = document.getElementById('tgEmbedFrame');
             if(ifrReset){ ifrReset.style.top='0'; ifrReset.style.left='0'; ifrReset.style.width='100%'; ifrReset.style.height='100%'; ifrReset.style.pointerEvents='auto'; }
@@ -6722,6 +6750,41 @@ async function doLogin(){
             });
         }
         setupDoubleTap();
+
+        // Sync directControls play/pause icon with actual video state
+        (function(){
+            const v = document.getElementById('mainVideo');
+            if(!v) return;
+            function syncDirect(){ 
+                const dp = document.getElementById('directIconPlay');
+                const dpa = document.getElementById('directIconPause');
+                if(dp && dpa){ dp.style.display = v.paused?'block':'none'; dpa.style.display = v.paused?'none':'block'; }
+            }
+            v.addEventListener('play', syncDirect);
+            v.addEventListener('pause', syncDirect);
+        })();
+
+        // === PLAY/PAUSE TOGGLE ===
+        function toggleMainVideo() {
+            const v = document.getElementById('mainVideo');
+            if(!v || v.style.display === 'none') return;
+            const fb = document.getElementById('playPauseFeedback');
+            const ppIcon = document.getElementById('ppIcon');
+            const dPlay = document.getElementById('directIconPlay');
+            const dPause = document.getElementById('directIconPause');
+            if(v.paused) {
+                v.play().catch(()=>{});
+                if(ppIcon) ppIcon.innerHTML = '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>';
+                if(dPlay) dPlay.style.display = 'none';
+                if(dPause) dPause.style.display = 'block';
+            } else {
+                v.pause();
+                if(ppIcon) ppIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+                if(dPlay) dPlay.style.display = 'block';
+                if(dPause) dPause.style.display = 'none';
+            }
+            if(fb){ fb.style.opacity='1'; clearTimeout(fb._t); fb._t=setTimeout(()=>{fb.style.opacity='0';},700); }
+        }
 
         // === SEEK FEEDBACK ===
         let seekFbTimer = null;
