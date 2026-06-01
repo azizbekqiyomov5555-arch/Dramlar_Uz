@@ -1720,8 +1720,13 @@ async function doLogin(){
 
         <!-- GDRIVE UI YASHIRUVCHI -->
         <div id="gdriveMaskOverlay" style="display:none;pointer-events:none;">
+            <!-- Yuqori qism (Drive header) -->
             <div style="position:absolute;top:0;left:0;width:100%;height:52px;background:#000;z-index:3022;"></div>
-            <div style="position:absolute;bottom:0;left:0;width:100%;height:72px;background:#000;z-index:3022;"></div>
+            <!-- O'rta controls paneli (play/pause + seek + vaqt) -->
+            <div style="position:absolute;bottom:90px;left:0;width:100%;height:120px;background:#000;z-index:3022;"></div>
+            <!-- Pastki controls paneli (volume, CC, 1x, settings) + progress bar -->
+            <div style="position:absolute;bottom:0;left:0;width:100%;height:92px;background:#000;z-index:3022;"></div>
+            <!-- O'ng tomon -->
             <div style="position:absolute;top:0;right:0;width:60px;height:100%;background:#000;z-index:3022;"></div>
         </div>
 
@@ -4453,10 +4458,11 @@ async function doLogin(){
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
+                // Mask overlay — Drive controls (pastki va o'rta panellar) ni yopamiz
                 const gdMask = document.getElementById('gdriveMaskOverlay');
-                if(gdMask) gdMask.style.display = 'none';
+                if(gdMask) gdMask.style.display = 'block';
 
-                // Iframe ni ekrandan katta qilib, Drive controls crop qilinadi
+                // Iframe ni to'liq ekran
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
                 iframe.style.top = '0';
@@ -4465,13 +4471,16 @@ async function doLogin(){
                 iframe.style.height = '100%';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
-                iframe.style.pointerEvents = 'none'; // iframe bilan o'zaro ta'sir o'chiriladi
+                iframe.style.pointerEvents = 'none';
                 iframe.removeAttribute('sandbox');
                 iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                iframe.style.pointerEvents = 'auto';
+                // Custom controls ko'rsatish
+                const gcc = document.getElementById('gdCustomControls');
+                if(gcc) gcc.style.display = 'block';
+
                 hideVideoLoading();
 
             } else if(info.type === 'telegram') {
