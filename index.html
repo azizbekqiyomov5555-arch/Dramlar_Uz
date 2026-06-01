@@ -4436,10 +4436,10 @@ async function doLogin(){
                 // Iframe ni ekrandan katta qilib, Drive controls crop qilinadi
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                iframe.style.top = '-120px';
+                iframe.style.top = '0';
                 iframe.style.left = '0';
                 iframe.style.width = '100%';
-                iframe.style.height = 'calc(100% + 500px)';
+                iframe.style.height = '100%';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
                 iframe.style.pointerEvents = 'none'; // iframe bilan o'zaro ta'sir o'chiriladi
@@ -4448,33 +4448,8 @@ async function doLogin(){
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Iframe ustiga shaffof tap-layer — foydalanuvchi bosishi uchun
-                let gdTapLayer = document.getElementById('gdTapLayer');
-                if(!gdTapLayer) {
-                    gdTapLayer = document.createElement('div');
-                    gdTapLayer.id = 'gdTapLayer';
-                    gdTapLayer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:3015;background:transparent;';
-                    document.getElementById('player').appendChild(gdTapLayer);
-                }
-                gdTapLayer.style.display = 'block';
-
-                // Tap layer bosilganda iframe ga click yo'naltiramiz (play/pause)
-                let _gdPlaying = true;
-                gdTapLayer.onclick = () => {
-                    iframe.style.pointerEvents = 'auto';
-                    iframe.contentWindow && iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}','*');
-                    setTimeout(() => { iframe.style.pointerEvents = 'none'; }, 300);
-                };
-
+                iframe.style.pointerEvents = 'auto';
                 hideVideoLoading();
-                // Custom controls ko'rsatamiz
-                var gcc = document.getElementById('gdCustomControls');
-                if(gcc){ gcc.style.display = 'block'; }
-                if(typeof _gdPaused !== 'undefined'){ _gdPaused = false; }
-                var gip = document.getElementById('gdIconPlay');
-                var gipp = document.getElementById('gdIconPause');
-                if(gip) gip.style.display = 'none';
-                if(gipp) gipp.style.display = 'block';
 
             } else if(info.type === 'telegram') {
                 v.style.display = 'none'; v.src = '';
