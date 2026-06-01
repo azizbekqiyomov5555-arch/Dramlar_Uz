@@ -3256,7 +3256,7 @@ async function doLogin(){
             const frame = document.getElementById('ytPlayerFrame');
             const tit   = document.getElementById('ytPlayerTitle');
             if(!page || !frame) return;
-            frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`;
+            frame.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&showinfo=0`;
             if(tit) tit.textContent = title;
             page.style.display = 'flex';
             if(window.Telegram?.WebApp) {
@@ -4372,7 +4372,8 @@ async function doLogin(){
                 iframe.style.display = 'block';
                 showVideoLoading('Google Drive yuklanmoqda...');
                 iframe.onload = () => { setTimeout(hideVideoLoading, 1500); };
-                iframe.src = `https://drive.google.com/file/d/${info.id}/preview`;
+                // preview?rm=minimal — Google Drive UI ni yashiradi
+                iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal`;
 
             } else if(info.type === 'telegram') {
                 v.style.display = 'none'; v.src = '';
