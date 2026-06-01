@@ -1719,10 +1719,7 @@ async function doLogin(){
         <div id="wmContainer" style="position:absolute;inset:0;pointer-events:none;z-index:3010;overflow:hidden;"></div>
 
         <!-- GDRIVE UI YASHIRUVCHI — faqat pastki toolbar -->
-        <div id="gdriveMaskOverlay" style="display:none;pointer-events:none;">
-            <!-- Pastki controls paneli (volume, CC, 1x, settings, progress bar) -->
-            <div style="position:absolute;bottom:0;left:0;width:100%;height:95px;background:#000;z-index:3022;"></div>
-        </div>
+        <div id="gdriveMaskOverlay" style="display:none;pointer-events:none;z-index:3025;position:absolute;bottom:0;left:0;width:100%;height:95px;background:#000;"></div>
 
         <!-- GDRIVE CUSTOM CONTROLS -->
         <div id="gdCustomControls" style="display:none;position:absolute;bottom:32px;left:50%;transform:translateX(-50%);z-index:3040;pointer-events:auto;white-space:nowrap;">
@@ -4451,7 +4448,11 @@ async function doLogin(){
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
-                // Iframe to'liq ekran
+                // Tap layerni olib tashlaymiz
+                const oldTap = document.getElementById('gdTapLayer');
+                if(oldTap) oldTap.style.display = 'none';
+
+                // Iframe to'liq ekran, to'liq interaktiv
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
                 iframe.style.top = '0';
@@ -4461,42 +4462,18 @@ async function doLogin(){
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
                 iframe.style.pointerEvents = 'auto';
+                iframe.style.zIndex = '3001';
                 iframe.removeAttribute('sandbox');
                 iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Pastki mask
+                // Faqat pastki toolbar yashiriladi (video area tegmasdan)
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'block';
 
-                // Custom controls yashir
                 const gcc = document.getElementById('gdCustomControls');
                 if(gcc) gcc.style.display = 'none';
-
-                // Tap layer — iframe ustiga bosilganda iframe ichiga click yuboradi
-                let gdTap = document.getElementById('gdTapLayer');
-                if(!gdTap) {
-                    gdTap = document.createElement('div');
-                    gdTap.id = 'gdTapLayer';
-                    gdTap.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:calc(100% - 95px);z-index:3021;background:transparent;';
-                    gdTap.addEventListener('click', function() {
-                        // iframe ichiga focus berib click simulatsiya
-                        iframe.style.pointerEvents = 'auto';
-                        try {
-                            const rect = iframe.getBoundingClientRect();
-                            const cx = rect.left + rect.width / 2;
-                            const cy = rect.top + rect.height / 2 - 60;
-                            const ev = new MouseEvent('click', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy});
-                            iframe.dispatchEvent(ev);
-                        } catch(e) {}
-                        setTimeout(function(){ iframe.style.pointerEvents = 'none'; gdTap.style.pointerEvents = 'auto'; }, 300);
-                    });
-                    document.getElementById('player').appendChild(gdTap);
-                }
-                gdTap.style.display = 'block';
-                gdTap.style.pointerEvents = 'auto';
-                iframe.style.pointerEvents = 'none';
 
                 hideVideoLoading();
 
