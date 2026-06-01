@@ -4445,33 +4445,32 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                v.style.display = 'none'; v.src = '';
-                v.onerror = null; v.oncanplay = null;
-
+                // Google Drive — to'g'ridan video stream sifatida ijro etamiz
                 const oldTap = document.getElementById('gdTapLayer');
                 if(oldTap) oldTap.style.display = 'none';
-
-                // Iframe ni pastga siljitamiz — Drive controls qora zonaga tushadi
-                iframe.style.display = 'block';
-                iframe.style.position = 'absolute';
-                iframe.style.top = '0';
-                iframe.style.left = '0';
-                iframe.style.width = '100%';
-                iframe.style.height = 'calc(100% + 200px)';
-                iframe.style.border = 'none';
-                iframe.style.background = '#000';
-                iframe.style.pointerEvents = 'auto';
-                iframe.style.zIndex = '3001';
-                iframe.removeAttribute('sandbox');
-                iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
-                iframe.setAttribute('allowfullscreen', '');
-                iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
-
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'none';
-
                 const gcc = document.getElementById('gdCustomControls');
                 if(gcc) gcc.style.display = 'none';
+
+                iframe.style.display = 'none'; iframe.src = '';
+
+                // Direct stream URL
+                const streamUrl = `https://drive.google.com/uc?export=download&id=${info.id}`;
+
+                v.style.display = 'block';
+                v.onerror = null; v.oncanplay = null;
+                showVideoLoading('Video yuklanmoqda...');
+
+                v.oncanplay = () => { hideVideoLoading(); };
+                v.onerror = () => { showVideoError('Google Drive video yuklanmadi. Fayl public ekanligini tekshiring.'); };
+
+                v.src = streamUrl;
+                v.controls = false;
+                v.autoplay = true;
+                v.setAttribute('controlslist', 'nodownload noremoteplayback');
+                v.setAttribute('disablepictureinpicture', '');
+                v.play().catch(() => {});
 
                 hideVideoLoading();
 
@@ -4740,7 +4739,7 @@ async function doLogin(){
             const seekL = document.getElementById('seekLeft');
             const seekR = document.getElementById('seekRight');
             const dcc = document.getElementById('directControls');
-            if(info.type === 'direct' || info.type === 'tgfile' || info.type === 'tgfile_legacy') {
+            if(info.type === 'direct' || info.type === 'tgfile' || info.type === 'tgfile_legacy' || info.type === 'gdrive') {
                 if(seekL) seekL.style.pointerEvents = 'auto';
                 if(seekR) seekR.style.pointerEvents = 'auto';
                 if(dcc) dcc.style.display = 'block';
