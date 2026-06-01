@@ -4448,14 +4448,13 @@ async function doLogin(){
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
-                // Tap layerni olib tashlaymiz
                 const oldTap = document.getElementById('gdTapLayer');
                 if(oldTap) oldTap.style.display = 'none';
 
-                // Iframe ni yuqoriga siljitamiz — Drive controls qora zonaga tushadi
+                // Iframe ni pastga siljitamiz — Drive controls qora zonaga tushadi
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                iframe.style.top = '-120px';
+                iframe.style.top = '120px';
                 iframe.style.left = '0';
                 iframe.style.width = '100%';
                 iframe.style.height = 'calc(100% + 120px)';
@@ -4468,7 +4467,6 @@ async function doLogin(){
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Mask yashiramiz (endi kerak emas — controls pastda qora zonada)
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'none';
 
