@@ -1136,35 +1136,38 @@ async function doLogin(){
                 <input type="text" id="kGenre" placeholder="Janr (masalan: Drama koreya)">
                 <input type="number" id="kPrice" placeholder="Narxi so'm (0 = tekin)">
 
-                <!-- Poster: Galereya tanlash -> Railway ga yuklanadi -->
+                <!-- Poster: Galereya → Telegram bot → URL -->
                 <div style="font-size:12px;color:#b46fff;font-weight:700;margin-bottom:6px;letter-spacing:1px;">🖼️ POSTER RASMI *</div>
 
                 <!-- Fayl tanlash tugmasi -->
                 <label id="posterPickLabel" style="display:flex;align-items:center;gap:14px;
                     background:linear-gradient(135deg,#1a0d1f,#111);
                     border:2px dashed rgba(180,100,255,0.4);border-radius:14px;
-                    padding:16px;cursor:pointer;margin-bottom:10px;
-                    transition:border-color 0.2s;"
+                    padding:16px;cursor:pointer;margin-bottom:10px;transition:border-color 0.2s;"
                     onmouseover="this.style.borderColor='rgba(180,100,255,0.9)'"
                     onmouseout="this.style.borderColor='rgba(180,100,255,0.4)'">
                     <span style="font-size:30px;">🖼️</span>
                     <div style="flex:1;">
                         <div id="posterPickName" style="font-size:14px;color:#b46fff;font-weight:900;">Rasmni tanlang</div>
-                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya / Fayllar → Railway ga yuklanadi</div>
+                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya → Telegram botga yuklanadi</div>
                     </div>
-                    <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToRailway(this)">
+                    <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToBot(this)">
                 </label>
 
+                <!-- Progress -->
                 <div id="posterUploadProgress" style="display:none;margin-bottom:10px;">
-                    <div style="font-size:12px;color:#888;margin-bottom:5px;" id="posterUploadTxt">Railway ga yuklanmoqda...</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:5px;" id="posterUploadTxt">Yuklanmoqda...</div>
                     <div style="background:#222;border-radius:8px;height:8px;overflow:hidden;">
                         <div id="posterUploadBar" style="height:100%;background:linear-gradient(90deg,#b46fff,#7b2fff);border-radius:8px;width:0%;transition:width 0.3s;"></div>
                     </div>
                 </div>
+
+                <!-- Preview -->
                 <div id="posterPreview" style="display:none;margin-bottom:10px;text-align:center;">
                     <img id="posterImg" style="max-width:100%;max-height:160px;border-radius:14px;border:1.5px solid rgba(180,100,255,0.4);object-fit:cover;">
-                    <div style="font-size:11px;color:#b46fff;margin-top:6px;font-weight:700;">✅ Poster Railway ga yuklandi</div>
+                    <div style="font-size:11px;color:#b46fff;margin-top:6px;font-weight:700;">✅ Poster yuklandi</div>
                 </div>
+
                 <input type="hidden" id="kPosterUrl">
 
                 <!-- Video qismlar URL -->
@@ -4881,7 +4884,8 @@ async function doLogin(){
         function pickPosterFile(input) {}
         function previewPosterUrlLive(url) {}
 
-        async function uploadPosterToRailway(input) {
+        // Rasm → Telegram botga sendPhoto → file_id → URL
+        async function uploadPosterToBot(input) {
             const file = input.files[0];
             if(!file) return;
 
@@ -4893,43 +4897,57 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '5%';
-            progTxt.textContent = 'Xotira tozalanmoqda...';
-
-            // Avval xotirani tozalaymiz
-            try { await deepCleanStorage(); } catch(_) {}
-            await healStorage('beforeUpload');
+            progBar.style.width = '10%';
+            progTxt.textContent = 'Telegram botga yuklanmoqda...';
 
             try {
-                progBar.style.width = '10%';
-                progTxt.textContent = 'Rasm o\'qilmoqda...';
+                // Bot token va admin ID ni olish
+                const token   = (await db.settings.get('token'))?.value;
+                const adminId = (await db.settings.get('admin_id'))?.value;
 
-                // Faylni base64 ga o'giramiz
-                const base64 = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result.split(',')[1]);
-                    reader.onerror = () => reject(new Error('Fayl o\'qilmadi'));
-                    reader.readAsDataURL(file);
-                });
+                if(!token || !adminId) {
+                    throw new Error('Bot token yoki Admin ID sozlanmagan! Admin paneldan sozlang.');
+                }
+
+                progBar.style.width = '30%';
+
+                // Rasmni Telegram botga yuborish
+                const formData = new FormData();
+                formData.append('chat_id', adminId);
+                formData.append('photo', file);
 
                 progBar.style.width = '50%';
-                progTxt.textContent = 'Railway ga yuklanmoqda...';
+                progTxt.textContent = 'Bot javob kutilmoqda...';
 
-                const res = await fetch(`${RAILWAY_API}/api/upload/poster-base64`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-admin-token': ADMIN_TOKEN_H
-                    },
-                    body: JSON.stringify({ base64, mimetype: file.type || 'image/jpeg' })
-                });
+                const sendRes = await fetch(
+                    `https://api.telegram.org/bot${token}/sendPhoto`,
+                    { method: 'POST', body: formData }
+                );
+                const sendData = await sendRes.json();
 
-                const data = await res.json();
-                if(!data.ok) throw new Error(data.error || 'Server xatosi');
+                if(!sendData.ok) throw new Error('Bot xatosi: ' + (sendData.description || 'nomaʼlum'));
+
+                progBar.style.width = '75%';
+                progTxt.textContent = 'URL olinmoqda...';
+
+                // Eng katta o'lchamdagi rasmni olish
+                const photos = sendData.result.photo;
+                const biggest = photos[photos.length - 1];
+                const fileId = biggest.file_id;
+
+                // file_id → file_path → URL
+                const fileRes = await fetch(
+                    `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`
+                );
+                const fileData = await fileRes.json();
+
+                if(!fileData.ok) throw new Error('getFile xatosi');
+
+                const imgUrl = `https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`;
 
                 progBar.style.width = '100%';
-                document.getElementById('kPosterUrl').value = data.url;
-                document.getElementById('posterImg').src    = data.url;
+                document.getElementById('kPosterUrl').value = imgUrl;
+                document.getElementById('posterImg').src    = imgUrl;
                 document.getElementById('posterPreview').style.display = 'block';
                 progWrap.style.display = 'none';
                 showToast('✅ Poster yuklandi!', 'success');
@@ -4939,13 +4957,12 @@ async function doLogin(){
                 progBar.style.width = '0%';
                 nameEl.textContent = 'Rasmni tanlang';
                 nameEl.style.color = '#b46fff';
-                showToast('❌ Poster xatosi: ' + err.message, 'error');
+                showToast('❌ ' + err.message, 'error');
             }
         }
 
-        async function uploadPosterToTelegram(input) {
-            return uploadPosterToRailway(input);
-        }
+        async function uploadPosterToRailway(input) { return uploadPosterToBot(input); }
+        async function uploadPosterToTelegram(input) { return uploadPosterToBot(input); }
 
         // Mavjud kinoning posterini almashtirish
         async function changePosterForMovie(movieId, input) {
@@ -4953,32 +4970,32 @@ async function doLogin(){
             if(!file) return;
             showToast('⏳ Yangi poster yuklanmoqda...', '');
             try {
-                const base64 = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result.split(',')[1]);
-                    reader.onerror = () => reject(new Error('Fayl o\'qilmadi'));
-                    reader.readAsDataURL(file);
-                });
-                const res = await fetch(`${RAILWAY_API}/api/upload/poster-base64`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-admin-token': ADMIN_TOKEN_H
-                    },
-                    body: JSON.stringify({ base64, mimetype: file.type || 'image/jpeg' })
-                });
-                const data = await res.json();
-                if(!data.ok) throw new Error(data.error || 'Server xatosi');
-                const imageUrl = data.url;
-                if(!imageUrl) throw new Error('Rasm yuklanmadi');
-                // Kinoni yangilaymiz
+                const token   = (await db.settings.get('token'))?.value;
+                const adminId = (await db.settings.get('admin_id'))?.value;
+                if(!token || !adminId) throw new Error('Bot token yoki Admin ID sozlanmagan!');
+
+                const formData = new FormData();
+                formData.append('chat_id', adminId);
+                formData.append('photo', file);
+
+                const sendRes  = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method:'POST', body: formData });
+                const sendData = await sendRes.json();
+                if(!sendData.ok) throw new Error('Bot xatosi: ' + (sendData.description || ''));
+
+                const photos  = sendData.result.photo;
+                const fileId  = photos[photos.length - 1].file_id;
+                const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+                const fileData = await fileRes.json();
+                if(!fileData.ok) throw new Error('getFile xatosi');
+
+                const imageUrl = `https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`;
+
                 const movies = await moviesGet();
                 const idx = movies.findIndex(m => m.id === movieId);
                 if(idx !== -1) {
-                    movies[idx].poster = imageUrl;
+                    movies[idx].poster   = imageUrl;
                     movies[idx].posterId = '';
                     await moviesSet(movies);
-                    // Ekrandagi rasmni ham yangilaymiz
                     const imgEl = document.querySelector(`[data-poster-id="${movieId}"]`);
                     if(imgEl) imgEl.src = imageUrl;
                     showToast('✅ Poster almashtirildi!', 'success');
