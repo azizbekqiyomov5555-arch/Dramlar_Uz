@@ -4375,16 +4375,21 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                // Google Drive iframe player
+                // Google Drive iframe player — to'liq ekran, qora chiziqsiz
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
+                // gdriveMaskOverlay yashirish (kerak emas)
+                const gdMask = document.getElementById('gdriveMaskOverlay');
+                if(gdMask) gdMask.style.display = 'none';
+
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                iframe.style.top = '0';
-                iframe.style.left = '0';
-                iframe.style.width = '100%';
-                iframe.style.height = '100%';
+                // Yuqori va pastdagi qora chiziqlarni yo'qotish uchun iframe ni biroz kattalashtirish
+                iframe.style.top = '-5%';
+                iframe.style.left = '-5%';
+                iframe.style.width = '110%';
+                iframe.style.height = '110%';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
                 iframe.removeAttribute('sandbox');
@@ -4392,17 +4397,7 @@ async function doLogin(){
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal`;
 
-                // Loading overlay ni 3 soniyadan keyin majburan yashiramiz
-                // (iframe.onload ko'pincha Telegram ichida ishlamaydi)
-                const _gdTimer = setTimeout(() => { hideVideoLoading(); }, 3000);
-                iframe.onload = () => {
-                    clearTimeout(_gdTimer);
-                    hideVideoLoading();
-                    const gdMask = document.getElementById('gdriveMaskOverlay');
-                    if(gdMask) gdMask.style.display = 'block';
-                };
-
-                // Loading ni darhol yashiramiz — iframe fonida yuklanadi
+                // Darhol loading yashiramiz
                 hideVideoLoading();
 
             } else if(info.type === 'telegram') {
