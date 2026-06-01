@@ -4375,10 +4375,9 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                // Google Drive uchun to'g'ridan iframe ishlatamiz — video tag qora ekran beradi
+                // Google Drive iframe player
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
-                showVideoLoading('Google Drive yuklanmoqda...');
 
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
@@ -4391,13 +4390,20 @@ async function doLogin(){
                 iframe.removeAttribute('sandbox');
                 iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
                 iframe.setAttribute('allowfullscreen', '');
-                // rm=minimal: Drive toolbar/header yashirinadi, faqat video ko'rinadi
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal`;
+
+                // Loading overlay ni 3 soniyadan keyin majburan yashiramiz
+                // (iframe.onload ko'pincha Telegram ichida ishlamaydi)
+                const _gdTimer = setTimeout(() => { hideVideoLoading(); }, 3000);
                 iframe.onload = () => {
+                    clearTimeout(_gdTimer);
                     hideVideoLoading();
                     const gdMask = document.getElementById('gdriveMaskOverlay');
                     if(gdMask) gdMask.style.display = 'block';
                 };
+
+                // Loading ni darhol yashiramiz — iframe fonida yuklanadi
+                hideVideoLoading();
 
             } else if(info.type === 'telegram') {
                 v.style.display = 'none'; v.src = '';
