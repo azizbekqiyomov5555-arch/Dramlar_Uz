@@ -4451,7 +4451,7 @@ async function doLogin(){
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
-                // Iframe ni to'liq ekran, pointer events yoqilgan (bosish ishlaydi)
+                // Iframe to'liq ekran
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
                 iframe.style.top = '0';
@@ -4466,13 +4466,37 @@ async function doLogin(){
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Mask — faqat pastki controls ustiga (video qismiga tegmaydi)
+                // Pastki mask
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'block';
 
-                // Custom controls yashiramiz (iframe o'z play tugmasiga ega)
+                // Custom controls yashir
                 const gcc = document.getElementById('gdCustomControls');
                 if(gcc) gcc.style.display = 'none';
+
+                // Tap layer — iframe ustiga bosilganda iframe ichiga click yuboradi
+                let gdTap = document.getElementById('gdTapLayer');
+                if(!gdTap) {
+                    gdTap = document.createElement('div');
+                    gdTap.id = 'gdTapLayer';
+                    gdTap.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:calc(100% - 95px);z-index:3021;background:transparent;';
+                    gdTap.addEventListener('click', function() {
+                        // iframe ichiga focus berib click simulatsiya
+                        iframe.style.pointerEvents = 'auto';
+                        try {
+                            const rect = iframe.getBoundingClientRect();
+                            const cx = rect.left + rect.width / 2;
+                            const cy = rect.top + rect.height / 2 - 60;
+                            const ev = new MouseEvent('click', {bubbles:true, cancelable:true, view:window, clientX:cx, clientY:cy});
+                            iframe.dispatchEvent(ev);
+                        } catch(e) {}
+                        setTimeout(function(){ iframe.style.pointerEvents = 'none'; gdTap.style.pointerEvents = 'auto'; }, 300);
+                    });
+                    document.getElementById('player').appendChild(gdTap);
+                }
+                gdTap.style.display = 'block';
+                gdTap.style.pointerEvents = 'auto';
+                iframe.style.pointerEvents = 'none';
 
                 hideVideoLoading();
 
