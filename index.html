@@ -4375,28 +4375,26 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                iframe.style.display = 'none'; iframe.src = '';
+                // Google Drive uchun to'g'ridan iframe ishlatamiz — video tag qora ekran beradi
+                v.style.display = 'none'; v.src = '';
+                v.onerror = null; v.oncanplay = null;
                 showVideoLoading('Google Drive yuklanmoqda...');
-                // To'g'ridan video tag bilan o'ynash — Drive UI ko'rinmaydi
-                const driveUrl = `https://drive.google.com/uc?export=download&id=${info.id}`;
-                v.style.display = 'block';
-                v.src = driveUrl;
-                v.oncanplay = () => { hideVideoLoading(); v.play().catch(()=>{}); };
-                v.onerror = () => {
-                    // Fallback: iframe preview — faqat video ko'rinadi, Drive UI yashiriladi
-                    v.style.display = 'none'; v.src = '';
-                    iframe.style.display = 'block';
-                    iframe.style.position = 'absolute';
-                    iframe.style.top = '0';
-                    iframe.style.left = '0';
-                    iframe.style.width = '100%';
-                    iframe.style.height = '100%';
-                    iframe.style.border = 'none';
-                    iframe.style.background = '#000';
-                    // rm=minimal + usp=drivesdk: faqat video ko'rsatadi, Drive UI tugmalari yashiriladi
-                    iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&usp=drivesdk`;
+
+                iframe.style.display = 'block';
+                iframe.style.position = 'absolute';
+                iframe.style.top = '0';
+                iframe.style.left = '0';
+                iframe.style.width = '100%';
+                iframe.style.height = '100%';
+                iframe.style.border = 'none';
+                iframe.style.background = '#000';
+                iframe.removeAttribute('sandbox');
+                iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+                iframe.setAttribute('allowfullscreen', '');
+                // rm=minimal: Drive toolbar/header yashirinadi, faqat video ko'rinadi
+                iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal`;
+                iframe.onload = () => {
                     hideVideoLoading();
-                    // Drive UI elementlarini CSS orqali yashirish (iframe ustiga qoplag'ich)
                     const gdMask = document.getElementById('gdriveMaskOverlay');
                     if(gdMask) gdMask.style.display = 'block';
                 };
