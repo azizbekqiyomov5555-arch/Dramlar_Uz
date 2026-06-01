@@ -4375,29 +4375,46 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                // Google Drive iframe player — to'liq ekran, qora chiziqsiz
+                // Google Drive iframe — to'liq ekran, controls yashirilgan
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
-                // gdriveMaskOverlay yashirish (kerak emas)
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'none';
 
+                // Iframe ni ekrandan katta qilib, Drive controls crop qilinadi
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                // Yuqori va pastdagi qora chiziqlarni yo'qotish uchun iframe ni biroz kattalashtirish
-                iframe.style.top = '-5%';
-                iframe.style.left = '-5%';
-                iframe.style.width = '110%';
-                iframe.style.height = '110%';
+                iframe.style.top = '-60px';
+                iframe.style.left = '0';
+                iframe.style.width = '100%';
+                iframe.style.height = 'calc(100% + 120px)';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
+                iframe.style.pointerEvents = 'none'; // iframe bilan o'zaro ta'sir o'chiriladi
                 iframe.removeAttribute('sandbox');
                 iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
                 iframe.setAttribute('allowfullscreen', '');
-                iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal`;
+                iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Darhol loading yashiramiz
+                // Iframe ustiga shaffof tap-layer — foydalanuvchi bosishi uchun
+                let gdTapLayer = document.getElementById('gdTapLayer');
+                if(!gdTapLayer) {
+                    gdTapLayer = document.createElement('div');
+                    gdTapLayer.id = 'gdTapLayer';
+                    gdTapLayer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;z-index:3015;background:transparent;';
+                    document.getElementById('player').appendChild(gdTapLayer);
+                }
+                gdTapLayer.style.display = 'block';
+
+                // Tap layer bosilganda iframe ga click yo'naltiramiz (play/pause)
+                let _gdPlaying = true;
+                gdTapLayer.onclick = () => {
+                    iframe.style.pointerEvents = 'auto';
+                    iframe.contentWindow && iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}','*');
+                    setTimeout(() => { iframe.style.pointerEvents = 'none'; }, 300);
+                };
+
                 hideVideoLoading();
 
             } else if(info.type === 'telegram') {
@@ -5279,6 +5296,11 @@ async function doLogin(){
             // Google Drive UI masklarini yashirish
             const gdMask = document.getElementById('gdriveMaskOverlay');
             if(gdMask) gdMask.style.display = 'none';
+            const gdTapLayer = document.getElementById('gdTapLayer');
+            if(gdTapLayer) gdTapLayer.style.display = 'none';
+            // iframe ni normal holatga qaytarish
+            const ifrReset = document.getElementById('tgEmbedFrame');
+            if(ifrReset){ ifrReset.style.top='0'; ifrReset.style.left='0'; ifrReset.style.width='100%'; ifrReset.style.height='100%'; ifrReset.style.pointerEvents='auto'; }
 
             // Instagram viewer yashirish
             const igViewer = document.getElementById('igViewer');
