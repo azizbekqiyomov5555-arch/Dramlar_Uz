@@ -1695,13 +1695,64 @@ async function doLogin(){
         <!-- WATERMARK OVERLAY -->
         <div id="wmContainer" style="position:absolute;inset:0;pointer-events:none;z-index:3010;overflow:hidden;"></div>
 
-        <!-- GDRIVE UI YASHIRUVCHI: top/bottom/right qoplag'ichlar -->
+        <!-- GDRIVE UI YASHIRUVCHI -->
         <div id="gdriveMaskOverlay" style="display:none;pointer-events:none;">
             <div style="position:absolute;top:0;left:0;width:100%;height:52px;background:#000;z-index:3022;"></div>
             <div style="position:absolute;bottom:0;left:0;width:100%;height:72px;background:#000;z-index:3022;"></div>
             <div style="position:absolute;top:0;right:0;width:60px;height:100%;background:#000;z-index:3022;"></div>
         </div>
+
+        <!-- GDRIVE CUSTOM CONTROLS -->
+        <div id="gdCustomControls" style="display:none;position:absolute;bottom:32px;left:50%;transform:translateX(-50%);z-index:3040;pointer-events:auto;white-space:nowrap;">
+            <div style="display:inline-flex;align-items:center;gap:16px;background:rgba(0,0,0,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:50px;padding:10px 24px;border:1px solid rgba(255,255,255,0.15);">
+                <div onclick="gdSeek(-10)" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16 6C10.477 6 6 10.477 6 16s4.477 10 10 10 10-4.477 10-10" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M16 6l-4 4 4 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <text x="16" y="20" text-anchor="middle" fill="white" font-size="7" font-weight="bold" font-family="-apple-system,sans-serif">10</text>
+                    </svg>
+                </div>
+                <div id="gdPlayBtn" onclick="gdTogglePlay()" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,0.18);border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;">
+                    <svg id="gdIconPlay" width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="gdIconPause" width="22" height="22" viewBox="0 0 24 24" fill="white" style="display:none;"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                </div>
+                <div onclick="gdSeek(10)" style="cursor:pointer;display:flex;flex-direction:column;align-items:center;">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16 6C21.523 6 26 10.477 26 16s-4.477 10-10 10S6 21.523 6 16" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M16 6l4 4-4 4" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                        <text x="16" y="20" text-anchor="middle" fill="white" font-size="7" font-weight="bold" font-family="-apple-system,sans-serif">10</text>
+                    </svg>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <script>
+    var _gdPaused = false;
+    function gdTogglePlay(){
+        _gdPaused = !_gdPaused;
+        document.getElementById('gdIconPlay').style.display = _gdPaused ? 'block' : 'none';
+        document.getElementById('gdIconPause').style.display = _gdPaused ? 'none' : 'block';
+        var fr = document.getElementById('tgEmbedFrame');
+        if(!fr) return;
+        fr.style.pointerEvents = 'auto';
+        // Iframe markaziga click yuboramiz (Drive play/pause uchun)
+        setTimeout(function(){
+            try {
+                var ev = new MouseEvent('click',{bubbles:true,cancelable:true,view:window,clientX:fr.getBoundingClientRect().left + fr.offsetWidth/2, clientY:fr.getBoundingClientRect().top + fr.offsetHeight/2 - 100});
+                fr.dispatchEvent(ev);
+            } catch(e){}
+            fr.style.pointerEvents = 'none';
+        }, 50);
+    }
+    function gdSeek(sec){
+        // Drive iframe bilan to'g'ridan seek imkonsiz — tap layer orqali simulatsiya
+        var fr = document.getElementById('tgEmbedFrame');
+        if(!fr) return;
+        fr.style.pointerEvents = 'auto';
+        setTimeout(function(){ fr.style.pointerEvents = 'none'; }, 400);
+    }
+    </script>
 
     <!-- MINI PLAYER (kichik suzuvchi) -->
     <div id="miniPlayerBox" style="display:none;position:fixed;bottom:90px;right:12px;width:220px;height:125px;border-radius:14px;overflow:hidden;z-index:4000;box-shadow:0 4px 24px rgba(0,0,0,0.8);border:2px solid #00ff73;">
@@ -4388,7 +4439,7 @@ async function doLogin(){
                 iframe.style.top = '-120px';
                 iframe.style.left = '0';
                 iframe.style.width = '100%';
-                iframe.style.height = 'calc(100% + 400px)';
+                iframe.style.height = 'calc(100% + 500px)';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
                 iframe.style.pointerEvents = 'none'; // iframe bilan o'zaro ta'sir o'chiriladi
@@ -4416,6 +4467,14 @@ async function doLogin(){
                 };
 
                 hideVideoLoading();
+                // Custom controls ko'rsatamiz
+                var gcc = document.getElementById('gdCustomControls');
+                if(gcc){ gcc.style.display = 'block'; }
+                if(typeof _gdPaused !== 'undefined'){ _gdPaused = false; }
+                var gip = document.getElementById('gdIconPlay');
+                var gipp = document.getElementById('gdIconPause');
+                if(gip) gip.style.display = 'none';
+                if(gipp) gipp.style.display = 'block';
 
             } else if(info.type === 'telegram') {
                 v.style.display = 'none'; v.src = '';
@@ -5298,6 +5357,8 @@ async function doLogin(){
             if(gdMask) gdMask.style.display = 'none';
             const gdTapLayer = document.getElementById('gdTapLayer');
             if(gdTapLayer) gdTapLayer.style.display = 'none';
+            const gcc = document.getElementById('gdCustomControls');
+            if(gcc) gcc.style.display = 'none';
             // iframe ni normal holatga qaytarish
             const ifrReset = document.getElementById('tgEmbedFrame');
             if(ifrReset){ ifrReset.style.top='0'; ifrReset.style.left='0'; ifrReset.style.width='100%'; ifrReset.style.height='100%'; ifrReset.style.pointerEvents='auto'; }
