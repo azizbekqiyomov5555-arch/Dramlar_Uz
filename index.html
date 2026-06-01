@@ -4452,13 +4452,13 @@ async function doLogin(){
                 const oldTap = document.getElementById('gdTapLayer');
                 if(oldTap) oldTap.style.display = 'none';
 
-                // Iframe to'liq ekran, to'liq interaktiv
+                // Iframe ni yuqoriga siljitamiz — Drive controls qora zonaga tushadi
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                iframe.style.top = '0';
+                iframe.style.top = '-120px';
                 iframe.style.left = '0';
                 iframe.style.width = '100%';
-                iframe.style.height = '100%';
+                iframe.style.height = 'calc(100% + 120px)';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
                 iframe.style.pointerEvents = 'auto';
@@ -4468,9 +4468,9 @@ async function doLogin(){
                 iframe.setAttribute('allowfullscreen', '');
                 iframe.src = `https://drive.google.com/file/d/${info.id}/preview?rm=minimal&autoplay=1`;
 
-                // Faqat pastki toolbar yashiriladi (video area tegmasdan)
+                // Mask yashiramiz (endi kerak emas — controls pastda qora zonada)
                 const gdMask = document.getElementById('gdriveMaskOverlay');
-                if(gdMask) gdMask.style.display = 'block';
+                if(gdMask) gdMask.style.display = 'none';
 
                 const gcc = document.getElementById('gdCustomControls');
                 if(gcc) gcc.style.display = 'none';
