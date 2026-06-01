@@ -1720,14 +1720,12 @@ async function doLogin(){
 
         <!-- GDRIVE UI YASHIRUVCHI -->
         <div id="gdriveMaskOverlay" style="display:none;pointer-events:none;">
-            <!-- Yuqori qism (Drive header) -->
-            <div style="position:absolute;top:0;left:0;width:100%;height:52px;background:#000;z-index:3022;"></div>
-            <!-- O'rta controls paneli (play/pause + seek + vaqt) -->
-            <div style="position:absolute;bottom:90px;left:0;width:100%;height:120px;background:#000;z-index:3022;"></div>
-            <!-- Pastki controls paneli (volume, CC, 1x, settings) + progress bar -->
-            <div style="position:absolute;bottom:0;left:0;width:100%;height:92px;background:#000;z-index:3022;"></div>
-            <!-- O'ng tomon -->
-            <div style="position:absolute;top:0;right:0;width:60px;height:100%;background:#000;z-index:3022;"></div>
+            <!-- Yuqori qism -->
+            <div style="position:absolute;top:0;left:0;width:100%;height:60px;background:#000;z-index:3022;"></div>
+            <!-- O'rta controls (pause/seek/time) — video markazida paydo bo'ladi -->
+            <div id="gdMidMask" style="position:absolute;bottom:80px;left:0;width:100%;height:130px;background:#000;z-index:3022;"></div>
+            <!-- Pastki bar (volume CC 1x settings) + progress -->
+            <div style="position:absolute;bottom:0;left:0;width:100%;height:82px;background:#000;z-index:3022;"></div>
         </div>
 
         <!-- GDRIVE CUSTOM CONTROLS -->
@@ -4454,24 +4452,23 @@ async function doLogin(){
                 hideVideoLoading();
 
             } else if(info.type === 'gdrive') {
-                // Google Drive iframe — to'liq ekran, controls yashirilgan
                 v.style.display = 'none'; v.src = '';
                 v.onerror = null; v.oncanplay = null;
 
-                // Mask overlay — Drive controls (pastki va o'rta panellar) ni yopamiz
                 const gdMask = document.getElementById('gdriveMaskOverlay');
                 if(gdMask) gdMask.style.display = 'block';
 
-                // Iframe ni to'liq ekran
+                // Iframe ni ekrandan KATTA qilamiz — Drive controls pastga chiqib ketadi
+                // Keyin margin-top bilan yuqoriga ko'taramiz (video ko'rinadigan qilib)
                 iframe.style.display = 'block';
                 iframe.style.position = 'absolute';
-                iframe.style.top = '0';
+                iframe.style.top = '-10px';
                 iframe.style.left = '0';
                 iframe.style.width = '100%';
-                iframe.style.height = '100%';
+                iframe.style.height = 'calc(100% + 220px)';
                 iframe.style.border = 'none';
                 iframe.style.background = '#000';
-                iframe.style.pointerEvents = 'none';
+                iframe.style.pointerEvents = 'auto';
                 iframe.removeAttribute('sandbox');
                 iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
                 iframe.setAttribute('allowfullscreen', '');
