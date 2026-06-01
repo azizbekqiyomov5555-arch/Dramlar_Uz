@@ -6208,27 +6208,9 @@ async function doLogin(){
                                 <button onclick="deleteEpisode(${i})" style="background:#2a0000;color:#ff453a;border:1px solid #500;padding:5px 10px;border-radius:8px;font-weight:900;font-size:12px;flex-shrink:0;">🗑️</button>
                             </div>
                             <div id="epEditBox_${i}" style="display:none;margin-top:10px;">
-                                <div style="font-size:11px;color:#888;margin-bottom:6px;">Yangi video URL yoki t.me havolasi:</div>
-                                <input type="text" id="epEditInput_${i}" value="${v}" placeholder="https://... yoki t.me/kanal/123"
+                                <div style="font-size:11px;color:#00ff73;margin-bottom:6px;">🔗 Yangi YouTube yoki Google Drive URL:</div>
+                                <input type="text" id="epEditInput_${i}" value="${v}" placeholder="https://youtu.be/xxx  yoki  https://drive.google.com/..."
                                     style="width:100%;padding:11px 12px;background:#111;border:1.5px solid #333;color:#fff;border-radius:10px;font-size:13px;box-sizing:border-box;margin-bottom:8px;">
-                                <!-- Galereya video tanlash -->
-                                <label id="epEditGalleryLabel_${i}" style="display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#0d1f14,#111);border:2px dashed rgba(0,255,115,0.35);border-radius:12px;padding:12px 14px;cursor:pointer;margin-bottom:8px;">
-                                    <span style="font-size:22px;">🎬</span>
-                                    <div style="flex:1;">
-                                        <div id="epEditGalleryName_${i}" style="font-size:13px;color:var(--accent);font-weight:900;">Galereya dan video tanlang</div>
-                                        <div style="font-size:10px;color:#555;margin-top:2px;">Bot orqali Telegram ga yuklanadi</div>
-                                    </div>
-                                    <input type="file" accept="video/*" style="display:none;" onchange="uploadEpFileEdit(this, ${i})">
-                                </label>
-                                <div id="epEditProgWrap_${i}" style="display:none;margin-bottom:8px;">
-                                    <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-bottom:3px;">
-                                        <span>Yuklanmoqda...</span><span id="epEditPct_${i}">0%</span>
-                                    </div>
-                                    <div style="background:#222;border-radius:6px;height:7px;overflow:hidden;">
-                                        <div id="epEditBar_${i}" style="height:100%;background:linear-gradient(90deg,#00ff73,#00cc5c);border-radius:6px;width:0%;transition:width 0.2s;"></div>
-                                    </div>
-                                </div>
-                                <div id="epEditDone_${i}" style="display:none;background:#0d1f14;border:1.5px solid rgba(0,255,115,0.4);border-radius:10px;padding:9px 12px;margin-bottom:8px;font-size:12px;color:var(--accent);font-weight:900;word-break:break-all;"></div>
                                 <div style="display:flex;gap:8px;">
                                     <button onclick="saveEditEp(${i})" style="flex:1;background:var(--accent);color:#000;border:none;padding:11px;border-radius:10px;font-weight:900;font-size:13px;">💾 Saqlash</button>
                                     <button onclick="toggleEditEp(${i})" style="background:#1a1a1a;color:#888;border:1px solid #333;padding:11px 16px;border-radius:10px;font-weight:900;font-size:13px;">✕</button>
@@ -6537,29 +6519,9 @@ async function doLogin(){
                         <button onclick="this.closest('.ep-field-row').remove();"
                             style="background:#2a0000;color:#ff453a;border:1px solid #500;padding:6px 12px;border-radius:9px;font-weight:900;">✕</button>
                     </div>
-                    <label style="display:flex;align-items:center;gap:12px;
-                        background:linear-gradient(135deg,#0d1f14,#111);
-                        border:2px dashed rgba(0,255,115,0.4);border-radius:14px;
-                        padding:14px;cursor:pointer;margin-bottom:8px;">
-                        <span style="font-size:26px;">🎬</span>
-                        <div style="flex:1;">
-                            <div class="epFileName" style="font-size:14px;color:var(--accent);font-weight:900;">Video faylni tanlang</div>
-                            <div style="font-size:11px;color:#555;margin-top:2px;">Bot orqali Telegram ga yuklanadi</div>
-                        </div>
-                        <input type="file" accept="video/*" style="display:none;" onchange="uploadEpFile(this)">
-                    </label>
-                    <div class="epProgWrap" style="display:none;margin-bottom:8px;">
-                        <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;margin-bottom:4px;">
-                            <span>Yuklanmoqda...</span><span class="epPct">0%</span>
-                        </div>
-                        <div style="background:#222;border-radius:8px;height:8px;overflow:hidden;">
-                            <div class="epBar" style="height:100%;background:linear-gradient(90deg,#00ff73,#00cc5c);border-radius:8px;width:0%;transition:width 0.2s;"></div>
-                        </div>
-                    </div>
-                    <div class="epDone" style="display:none;background:#0d1f14;border:1.5px solid rgba(0,255,115,0.4);border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px;color:var(--accent);font-weight:900;word-break:break-all;"></div>
-                    <div style="font-size:11px;color:#666;margin-bottom:4px;text-align:center;">— yoki URL qo'lda kiriting —</div>
-                    <input type="text" class="newEpInps" placeholder="https://api.telegram.org/file/bot.../..."
-                        style="margin-bottom:0; font-size:12px; word-break:break-all;"
+                    <div style="font-size:11px;color:#00ff73;margin-bottom:6px;">🔗 YouTube yoki Google Drive URL</div>
+                    <input type="text" class="newEpInps" placeholder="https://youtu.be/xxx  yoki  https://drive.google.com/..."
+                        style="margin-bottom:0; font-size:13px; word-break:break-all;"
                         oninput="this.closest('.ep-field-row').setAttribute('data-videourl', this.value.trim())">
                     <input type="hidden" class="epBlobKey" value="url_${n}">
                 </div>`;
