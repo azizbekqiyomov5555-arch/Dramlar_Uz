@@ -1173,7 +1173,7 @@ async function doLogin(){
                 <!-- Video qismlar URL -->
                 <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:4px;letter-spacing:1px;">🎥 VIDEO QISMLAR *</div>
                 <div style="font-size:11px;color:#00ff73;margin-bottom:8px;padding:10px 12px;background:#0d1f14;border-radius:10px;border:1px solid rgba(0,255,115,0.2);">
-                    ☁️ Video faylni <b>Backblaze B2</b> ga to'g'ridan yuklash yoki URL kiriting<br>
+                    📤 Video faylni <b>Telegram bot</b> orqali yuklash yoki URL kiriting<br>
                     <span style="color:#888;font-size:10px;">Har qanday hajmdagi video qabul qilinadi. YouTube/Drive URL ham ishlaydi.</span>
                 </div>
                 <div id="vFields"></div>
@@ -5152,7 +5152,7 @@ async function doLogin(){
                         onmouseout="this.style.borderColor='rgba(0,255,115,0.35)'">
                         <span style="font-size:24px;">☁️</span>
                         <div style="flex:1;">
-                            <div id="vfName${n}" style="font-size:13px;color:var(--accent);font-weight:900;">Video faylni tanlang (B2 ga yuklanadi)</div>
+                            <div id="vfName${n}" style="font-size:13px;color:var(--accent);font-weight:900;">Video faylni tanlang (Telegram bot)</div>
                             <div style="font-size:10px;color:#555;margin-top:2px;">MP4, MKV, AVI — istalgan hajm</div>
                         </div>
                         <input type="file" accept="video/*" style="display:none;" onchange="uploadVideoToTelegram(this,${n})">
@@ -5252,7 +5252,7 @@ async function doLogin(){
 
         async function uploadVideoToTelegram(input, n) {
             const file = input.files[0];
-            if(!file) return;
+            if (!file) return;
 
             const nameEl  = document.getElementById('vfName' + n);
             const progEl  = document.getElementById('vfProg' + n);
@@ -5260,7 +5260,7 @@ async function doLogin(){
             const pct     = document.getElementById('vfPct' + n);
             const txt     = document.getElementById('vfProgTxt' + n);
             const doneEl  = document.getElementById('vfDone' + n);
-            const doneTxt = document.getElementById('vfDoneTxt' + n);
+            const doneTxt = document.getElementById('vfDone' + n);
 
             const mb = (file.size / 1024 / 1024).toFixed(1);
             nameEl.textContent = file.name + ` (${mb} MB)`;
@@ -5269,30 +5269,73 @@ async function doLogin(){
             doneEl.style.display = 'none';
             bar.style.width = '1%';
             pct.textContent = '1%';
-            txt.textContent = `☁️ B2 ga yuklanmoqda (${mb} MB)...`;
+            txt.textContent = `📤 Telegram botga yuklanmoqda (${mb} MB)...`;
 
             try {
-                const videoUrl = await uploadToR2(file, (loaded, total) => {
-                    const p = Math.max(2, Math.round((loaded / total) * 98));
-                    bar.style.transition = 'width 0.3s';
-                    bar.style.width = p + '%';
-                    pct.textContent = p + '%';
-                    txt.textContent = `${(loaded/1024/1024).toFixed(1)} / ${mb} MB`;
+                const token   = (await db.settings.get('token'))?.value;
+                const adminId = (await db.settings.get('admin_id'))?.value;
+                if (!token || !adminId) throw new Error('Bot Token va Admin ID sozlanmagan!');
+
+                const fd = new FormData();
+                fd.append('chat_id', adminId);
+                fd.append('video', file, file.name);
+                fd.append('supports_streaming', 'true');
+
+                const uploadData = await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `https://api.telegram.org/bot${token}/sendVideo`);
+                    xhr.upload.onprogress = e => {
+                        if (e.lengthComputable) {
+                            const p = Math.max(1, Math.round((e.loaded / e.total) * 85));
+                            bar.style.width = p + '%';
+                            pct.textContent = p + '%';
+                            txt.textContent = `📤 ${(e.loaded/1024/1024).toFixed(1)} / ${mb} MB yuklandi`;
+                        }
+                    };
+                    xhr.onload = () => {
+                        try { resolve(JSON.parse(xhr.responseText)); }
+                        catch(e) { reject(new Error('Javob xatosi')); }
+                    };
+                    xhr.onerror  = () => reject(new Error('Tarmoq xatosi'));
+                    xhr.timeout  = 7200000;
+                    xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
+                    xhr.send(fd);
                 });
+
+                if (!uploadData.ok) throw new Error(uploadData.description || 'Telegram xatosi');
+
+                bar.style.width = '90%';
+                pct.textContent = '90%';
+                txt.textContent = '🔗 URL olinmoqda...';
+
+                const fileId     = uploadData.result.video.file_id;
+                const fileSizeMB = (uploadData.result.video.file_size || 0) / 1024 / 1024;
+
+                let videoUrl;
+                if (fileSizeMB <= 19.5) {
+                    try {
+                        const gf = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+                        const gd = await gf.json();
+                        videoUrl = gd.ok
+                            ? `https://api.telegram.org/file/bot${token}/${gd.result.file_path}`
+                            : `tgfile://${fileId}`;
+                    } catch(e) { videoUrl = `tgfile://${fileId}`; }
+                } else {
+                    videoUrl = `tgfile://${fileId}`;
+                }
 
                 setVfUrl(n, videoUrl);
                 bar.style.width = '100%';
                 pct.textContent = '100%';
-                txt.textContent = 'Tayyor!';
 
                 setTimeout(() => {
                     progEl.style.display = 'none';
                     doneEl.style.display = 'block';
-                    if(doneTxt) doneTxt.textContent = `✅ ${file.name} (${mb} MB) — B2 da saqlandi!`;
-                    showToast(`✅ ${n}-qism B2 ga yuklandi!`, 'success');
+                    doneEl.innerHTML = `✅ ${file.name} (${mb} MB) — Telegram da saqlandi!`;
+                    showToast(`✅ ${n}-qism yuklandi!`, 'success');
                 }, 400);
 
-            } catch(err) {
+            } catch (err) {
                 progEl.style.display = 'none';
                 bar.style.width = '0%';
                 nameEl.style.color = '#ff453a';
