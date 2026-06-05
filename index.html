@@ -2470,7 +2470,24 @@ async function doLogin(){
         const B2_ENDPOINT = 's3.us-east-005.backblazeb2.com';
         const B2_PUBLIC_URL = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
 
-        // B2 Native API orqali yuklash (CORS muammosi yo'q)
+        // XHR orqali JSON so'rov (CORS uchun)
+        function xhrJson(method, url, headers, body) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open(method, url);
+                if (headers) Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
+                xhr.timeout = 30000;
+                xhr.onload = () => {
+                    try { resolve(JSON.parse(xhr.responseText)); }
+                    catch(e) { reject(new Error('JSON parse xatosi: ' + xhr.responseText.slice(0,200))); }
+                };
+                xhr.onerror = () => reject(new Error('Tarmoq xatosi (CORS yoki internet yo\'q)'));
+                xhr.ontimeout = () => reject(new Error('So\'rov vaqti tugadi'));
+                xhr.send(body ? (typeof body === 'string' ? body : JSON.stringify(body)) : null);
+            });
+        }
+
+        // B2 Native API orqali yuklash
         // 1) b2_authorize_account → authToken + apiUrl + downloadUrl
         // 2) b2_get_upload_url → uploadUrl + uploadAuthToken
         // 3) b2_upload_file → fayl yuklash
@@ -2483,35 +2500,46 @@ async function doLogin(){
 
             // Step 1: Authorize
             const authStr = btoa(`${B2_KEY_ID}:${B2_APP_KEY}`);
-            const authRes = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
-                headers: { 'Authorization': 'Basic ' + authStr }
-            });
-            if (!authRes.ok) throw new Error('B2 auth xatosi: ' + authRes.status);
-            const authData = await authRes.json();
+            let authData;
+            try {
+                authData = await xhrJson('GET', 'https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+                    'Authorization': 'Basic ' + authStr
+                }, null);
+            } catch(e) {
+                throw new Error('B2 ulanish xatosi: ' + e.message);
+            }
+            if (!authData.authorizationToken) {
+                throw new Error('B2 auth muvaffaqiyatsiz: ' + JSON.stringify(authData).slice(0,150));
+            }
             const { authorizationToken, apiUrl } = authData;
 
-            // Step 2: Get upload URL (bucket ID kerak)
-            // Avval bucket ID ni olamiz
-            const listRes = await fetch(apiUrl + '/b2api/v2/b2_list_buckets', {
-                method: 'POST',
-                headers: { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ accountId: authData.accountId, bucketName: B2_BUCKET })
-            });
-            const listData = await listRes.json();
+            // Step 2: Bucket ID olish
+            let listData;
+            try {
+                listData = await xhrJson('POST', apiUrl + '/b2api/v2/b2_list_buckets',
+                    { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
+                    JSON.stringify({ accountId: authData.accountId, bucketName: B2_BUCKET })
+                );
+            } catch(e) {
+                throw new Error('Bucket ro\'yxati xatosi: ' + e.message);
+            }
             const bucket = listData.buckets && listData.buckets[0];
             if (!bucket) throw new Error('Bucket topilmadi: ' + B2_BUCKET);
             const bucketId = bucket.bucketId;
 
-            // Step 3: Get upload URL
-            const upUrlRes = await fetch(apiUrl + '/b2api/v2/b2_get_upload_url', {
-                method: 'POST',
-                headers: { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bucketId })
-            });
-            const upUrlData = await upUrlRes.json();
+            // Step 3: Upload URL olish
+            let upUrlData;
+            try {
+                upUrlData = await xhrJson('POST', apiUrl + '/b2api/v2/b2_get_upload_url',
+                    { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
+                    JSON.stringify({ bucketId })
+                );
+            } catch(e) {
+                throw new Error('Upload URL xatosi: ' + e.message);
+            }
             const { uploadUrl, authorizationToken: uploadToken } = upUrlData;
 
-            // Step 4: Upload file with progress
+            // Step 4: SHA-1 hisoblash va yuklash
             const fileBuffer = await file.arrayBuffer();
             const hashBuffer = await crypto.subtle.digest('SHA-1', fileBuffer);
             const sha1 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -2522,7 +2550,6 @@ async function doLogin(){
                 xhr.setRequestHeader('Authorization', uploadToken);
                 xhr.setRequestHeader('X-Bz-File-Name', encodeURIComponent(fileName));
                 xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-                xhr.setRequestHeader('Content-Length', fileBuffer.byteLength);
                 xhr.setRequestHeader('X-Bz-Content-Sha1', sha1);
                 xhr.timeout = 7200000; // 2 soat
 
@@ -2531,15 +2558,14 @@ async function doLogin(){
                 };
                 xhr.onload = () => {
                     try { resolve(JSON.parse(xhr.responseText)); }
-                    catch(e) { reject(new Error('Javob xatosi: ' + xhr.responseText.slice(0,100))); }
+                    catch(e) { reject(new Error('Yuklash javob xatosi: ' + xhr.responseText.slice(0,100))); }
                 };
-                xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
-                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (2 soat)'));
+                xhr.onerror   = () => reject(new Error('Yuklash tarmoq xatosi — internet yoki CORS muammosi'));
+                xhr.ontimeout = () => reject(new Error('Yuklash vaqti tugadi (2 soat)'));
                 xhr.send(fileBuffer);
             });
 
             if (uploadRes.fileId) {
-                // Public URL
                 return `${authData.downloadUrl}/file/${B2_BUCKET}/${fileName}`;
             } else {
                 throw new Error('B2 yuklash xatosi: ' + JSON.stringify(uploadRes).slice(0,200));
@@ -5297,6 +5323,11 @@ async function doLogin(){
                 bar.style.width = '0%';
                 nameEl.style.color = '#ff453a';
                 nameEl.textContent = '❌ ' + err.message;
+                doneEl.style.display = 'block';
+                doneEl.style.color = '#ff453a';
+                doneEl.style.background = '#1f0a0a';
+                doneEl.style.border = '1px solid rgba(255,69,58,0.3)';
+                doneEl.innerHTML = `❌ <b>${err.message}</b><br><span style="color:#888;font-size:10px;">URL maydoniga to'g'ridan B2 havolani kiriting yoki internet/CORS muammosini tekshiring.</span>`;
                 showToast('❌ Video xatosi: ' + err.message, 'error');
             }
         }
