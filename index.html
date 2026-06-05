@@ -1173,7 +1173,7 @@ async function doLogin(){
                 <!-- Video qismlar URL -->
                 <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:4px;letter-spacing:1px;">🎥 VIDEO QISMLAR *</div>
                 <div style="font-size:11px;color:#00ff73;margin-bottom:8px;padding:10px 12px;background:#0d1f14;border-radius:10px;border:1px solid rgba(0,255,115,0.2);">
-                    📤 Video faylni <b>Telegram bot</b> orqali yuklash yoki URL kiriting<br>
+                    ☁️ Video faylni <b>B2</b> ga yuklash yoki URL kiriting<br>
                     <span style="color:#888;font-size:10px;">Har qanday hajmdagi video qabul qilinadi. YouTube/Drive URL ham ishlaydi.</span>
                 </div>
                 <div id="vFields"></div>
@@ -2464,87 +2464,89 @@ async function doLogin(){
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
         // ===== BACKBLAZE B2 SOZLAMALARI =====
-        const B2_KEY_ID      = '00537492131e4f70000000002';
-        const B2_APP_KEY     = 'K005NskO63g679mBabcgeGjnkSbTDnw';
-        const B2_BUCKET      = 'Dramlar';
-        const B2_ENDPOINT    = 's3.us-east-005.backblazeb2.com';
-        const B2_PUBLIC_URL  = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
+        const B2_KEY_ID   = '00537492131e4f70000000002';
+        const B2_APP_KEY  = 'K005NskO63g679mBabcgeGjnkSbTDnw';
+        const B2_BUCKET   = 'Dramlar';
+        const B2_ENDPOINT = 's3.us-east-005.backblazeb2.com';
+        const B2_PUBLIC_URL = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
 
+        // B2 Native API orqali yuklash (CORS muammosi yo'q)
+        // 1) b2_authorize_account → authToken + apiUrl + downloadUrl
+        // 2) b2_get_upload_url → uploadUrl + uploadAuthToken
+        // 3) b2_upload_file → fayl yuklash
         async function uploadToB2(file, onProgress) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
-            const folder = isVideo ? 'videos' : 'posters';
+            const folder  = isVideo ? 'videos' : 'posters';
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-            const key = `${folder}/${Date.now()}_${safeName}`;
+            const fileName = `${folder}/${Date.now()}_${safeName}`;
 
-            // AWS Signature v4 yordamchi funksiyalar
-            const toHex = buf => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-            const sha256 = async data => crypto.subtle.digest('SHA-256', typeof data==='string' ? new TextEncoder().encode(data) : data);
-            const hmac = async (keyData, msg) => {
-                const k = await crypto.subtle.importKey(
-                    'raw',
-                    typeof keyData === 'string' ? new TextEncoder().encode(keyData) : keyData,
-                    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-                );
-                return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
-            };
+            // Step 1: Authorize
+            const authStr = btoa(`${B2_KEY_ID}:${B2_APP_KEY}`);
+            const authRes = await fetch('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+                headers: { 'Authorization': 'Basic ' + authStr }
+            });
+            if (!authRes.ok) throw new Error('B2 auth xatosi: ' + authRes.status);
+            const authData = await authRes.json();
+            const { authorizationToken, apiUrl } = authData;
 
+            // Step 2: Get upload URL (bucket ID kerak)
+            // Avval bucket ID ni olamiz
+            const listRes = await fetch(apiUrl + '/b2api/v2/b2_list_buckets', {
+                method: 'POST',
+                headers: { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accountId: authData.accountId, bucketName: B2_BUCKET })
+            });
+            const listData = await listRes.json();
+            const bucket = listData.buckets && listData.buckets[0];
+            if (!bucket) throw new Error('Bucket topilmadi: ' + B2_BUCKET);
+            const bucketId = bucket.bucketId;
+
+            // Step 3: Get upload URL
+            const upUrlRes = await fetch(apiUrl + '/b2api/v2/b2_get_upload_url', {
+                method: 'POST',
+                headers: { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucketId })
+            });
+            const upUrlData = await upUrlRes.json();
+            const { uploadUrl, authorizationToken: uploadToken } = upUrlData;
+
+            // Step 4: Upload file with progress
             const fileBuffer = await file.arrayBuffer();
-            const fileHash = toHex(await sha256(fileBuffer));
+            const hashBuffer = await crypto.subtle.digest('SHA-1', fileBuffer);
+            const sha1 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
 
-            const now = new Date();
-            const ymd     = now.toISOString().slice(0,10).replace(/-/g,'');
-            const amzDate = now.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'').slice(0,15) + 'Z';
-            const region  = 'us-east-005';
-            const svc     = 's3';
-            const host    = B2_ENDPOINT;
-            const ct      = file.type || 'application/octet-stream';
-
-            const canonHeaders = `content-type:${ct}\nhost:${host}\nx-amz-content-sha256:${fileHash}\nx-amz-date:${amzDate}\n`;
-            const signedHdrs   = 'content-type;host;x-amz-content-sha256;x-amz-date';
-            const canonReq     = `PUT\n/${B2_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
-            const scope        = `${ymd}/${region}/${svc}/aws4_request`;
-            const strToSign    = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${toHex(await sha256(canonReq))}`;
-
-            let sigKey = await hmac('AWS4' + B2_APP_KEY, ymd);
-            sigKey = await hmac(sigKey, region);
-            sigKey = await hmac(sigKey, svc);
-            sigKey = await hmac(sigKey, 'aws4_request');
-            const sig  = toHex(await hmac(sigKey, strToSign));
-            const auth = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
-            const url  = `https://${B2_ENDPOINT}/${B2_BUCKET}/${key}`;
-
-            return new Promise((resolve, reject) => {
+            const uploadRes = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('PUT', url);
-                xhr.setRequestHeader('Authorization', auth);
-                xhr.setRequestHeader('Content-Type', ct);
-                xhr.setRequestHeader('x-amz-date', amzDate);
-                xhr.setRequestHeader('x-amz-content-sha256', fileHash);
+                xhr.open('POST', uploadUrl);
+                xhr.setRequestHeader('Authorization', uploadToken);
+                xhr.setRequestHeader('X-Bz-File-Name', encodeURIComponent(fileName));
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                xhr.setRequestHeader('Content-Length', fileBuffer.byteLength);
+                xhr.setRequestHeader('X-Bz-Content-Sha1', sha1);
                 xhr.timeout = 7200000; // 2 soat
 
-                if (onProgress) {
-                    xhr.upload.onprogress = e => {
-                        if (e.lengthComputable) onProgress(e.loaded, e.total);
-                    };
-                }
-                xhr.onload = () => {
-                    if (xhr.status === 200 || xhr.status === 204) {
-                        resolve(`${B2_PUBLIC_URL}/${key}`);
-                    } else {
-                        // CORS yoki auth xatosi uchun batafsil xabar
-                        const msg = xhr.responseText
-                            ? xhr.responseText.slice(0, 300)
-                            : `HTTP ${xhr.status}`;
-                        reject(new Error(`B2 xatosi (${xhr.status}): ${msg}`));
-                    }
+                xhr.upload.onprogress = e => {
+                    if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
                 };
-                xhr.onerror   = () => reject(new Error('Tarmoq xatosi — B2 CORS yoqilganmi? Bucket sozlamalarini tekshiring.'));
-                xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
+                xhr.onload = () => {
+                    try { resolve(JSON.parse(xhr.responseText)); }
+                    catch(e) { reject(new Error('Javob xatosi: ' + xhr.responseText.slice(0,100))); }
+                };
+                xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
+                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (2 soat)'));
                 xhr.send(fileBuffer);
             });
+
+            if (uploadRes.fileId) {
+                // Public URL
+                return `${authData.downloadUrl}/file/${B2_BUCKET}/${fileName}`;
+            } else {
+                throw new Error('B2 yuklash xatosi: ' + JSON.stringify(uploadRes).slice(0,200));
+            }
         }
-        // Eski nom bilan ham ishlashi uchun alias
+
+        // Alias
         const uploadToR2 = uploadToB2;
         // ===== B2 SOZLAMALARI TUGADI =====
 
@@ -5152,7 +5154,7 @@ async function doLogin(){
                         onmouseout="this.style.borderColor='rgba(0,255,115,0.35)'">
                         <span style="font-size:24px;">☁️</span>
                         <div style="flex:1;">
-                            <div id="vfName${n}" style="font-size:13px;color:var(--accent);font-weight:900;">Video faylni tanlang (Telegram bot)</div>
+                            <div id="vfName${n}" style="font-size:13px;color:var(--accent);font-weight:900;">Video faylni tanlang (B2 ga yuklanadi)</div>
                             <div style="font-size:10px;color:#555;margin-top:2px;">MP4, MKV, AVI — istalgan hajm</div>
                         </div>
                         <input type="file" accept="video/*" style="display:none;" onchange="uploadVideoToTelegram(this,${n})">
@@ -5260,7 +5262,6 @@ async function doLogin(){
             const pct     = document.getElementById('vfPct' + n);
             const txt     = document.getElementById('vfProgTxt' + n);
             const doneEl  = document.getElementById('vfDone' + n);
-            const doneTxt = document.getElementById('vfDone' + n);
 
             const mb = (file.size / 1024 / 1024).toFixed(1);
             nameEl.textContent = file.name + ` (${mb} MB)`;
@@ -5269,77 +5270,33 @@ async function doLogin(){
             doneEl.style.display = 'none';
             bar.style.width = '1%';
             pct.textContent = '1%';
-            txt.textContent = `📤 Telegram botga yuklanmoqda (${mb} MB)...`;
+            txt.textContent = `☁️ B2 ga yuklanmoqda (${mb} MB)...`;
 
             try {
-                const token   = (await db.settings.get('token'))?.value;
-                const adminId = (await db.settings.get('admin_id'))?.value;
-                if (!token || !adminId) throw new Error('Bot Token va Admin ID sozlanmagan!');
-
-                const fd = new FormData();
-                fd.append('chat_id', adminId);
-                fd.append('video', file, file.name);
-                fd.append('supports_streaming', 'true');
-
-                const uploadData = await new Promise((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', `https://api.telegram.org/bot${token}/sendVideo`);
-                    xhr.upload.onprogress = e => {
-                        if (e.lengthComputable) {
-                            const p = Math.max(1, Math.round((e.loaded / e.total) * 85));
-                            bar.style.width = p + '%';
-                            pct.textContent = p + '%';
-                            txt.textContent = `📤 ${(e.loaded/1024/1024).toFixed(1)} / ${mb} MB yuklandi`;
-                        }
-                    };
-                    xhr.onload = () => {
-                        try { resolve(JSON.parse(xhr.responseText)); }
-                        catch(e) { reject(new Error('Javob xatosi')); }
-                    };
-                    xhr.onerror  = () => reject(new Error('Tarmoq xatosi'));
-                    xhr.timeout  = 7200000;
-                    xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
-                    xhr.send(fd);
+                const videoUrl = await uploadToB2(file, (loaded, total) => {
+                    const p = Math.max(2, Math.round((loaded / total) * 98));
+                    bar.style.width = p + '%';
+                    pct.textContent = p + '%';
+                    txt.textContent = `☁️ ${(loaded/1024/1024).toFixed(1)} / ${mb} MB`;
                 });
-
-                if (!uploadData.ok) throw new Error(uploadData.description || 'Telegram xatosi');
-
-                bar.style.width = '90%';
-                pct.textContent = '90%';
-                txt.textContent = '🔗 URL olinmoqda...';
-
-                const fileId     = uploadData.result.video.file_id;
-                const fileSizeMB = (uploadData.result.video.file_size || 0) / 1024 / 1024;
-
-                let videoUrl;
-                if (fileSizeMB <= 19.5) {
-                    try {
-                        const gf = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
-                        const gd = await gf.json();
-                        videoUrl = gd.ok
-                            ? `https://api.telegram.org/file/bot${token}/${gd.result.file_path}`
-                            : `tgfile://${fileId}`;
-                    } catch(e) { videoUrl = `tgfile://${fileId}`; }
-                } else {
-                    videoUrl = `tgfile://${fileId}`;
-                }
 
                 setVfUrl(n, videoUrl);
                 bar.style.width = '100%';
                 pct.textContent = '100%';
+                txt.textContent = '✅ Tayyor!';
 
                 setTimeout(() => {
                     progEl.style.display = 'none';
                     doneEl.style.display = 'block';
-                    doneEl.innerHTML = `✅ ${file.name} (${mb} MB) — Telegram da saqlandi!`;
-                    showToast(`✅ ${n}-qism yuklandi!`, 'success');
+                    doneEl.innerHTML = `✅ ${file.name} (${mb} MB) — B2 da saqlandi!`;
+                    showToast(`✅ ${n}-qism B2 ga yuklandi!`, 'success');
                 }, 400);
 
             } catch (err) {
                 progEl.style.display = 'none';
                 bar.style.width = '0%';
                 nameEl.style.color = '#ff453a';
-                nameEl.textContent = '❌ Xatolik: ' + err.message;
+                nameEl.textContent = '❌ ' + err.message;
                 showToast('❌ Video xatosi: ' + err.message, 'error');
             }
         }
