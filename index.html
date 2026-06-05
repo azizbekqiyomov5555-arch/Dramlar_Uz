@@ -1149,7 +1149,7 @@ async function doLogin(){
                     <span style="font-size:30px;">🖼️</span>
                     <div style="flex:1;">
                         <div id="posterPickName" style="font-size:14px;color:#b46fff;font-weight:900;">Rasmni tanlang</div>
-                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya → Telegram botga yuklanadi</div>
+                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya → Backblaze B2 ga yuklanadi</div>
                     </div>
                     <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToBot(this)">
                 </label>
@@ -2471,17 +2471,21 @@ async function doLogin(){
         const B2_PUBLIC_URL  = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
 
         async function uploadToB2(file, onProgress) {
-            const ext = file.name.split('.').pop().toLowerCase();
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
             const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
             const folder = isVideo ? 'videos' : 'posters';
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
             const key = `${folder}/${Date.now()}_${safeName}`;
 
-            // Yordamchi funksiyalar (AWS S3 Signature v4 — B2 S3-compatible)
+            // AWS Signature v4 yordamchi funksiyalar
             const toHex = buf => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-            const sha256 = async data => crypto.subtle.digest('SHA-256', typeof data==='string'?new TextEncoder().encode(data):data);
+            const sha256 = async data => crypto.subtle.digest('SHA-256', typeof data==='string' ? new TextEncoder().encode(data) : data);
             const hmac = async (keyData, msg) => {
-                const k = await crypto.subtle.importKey('raw', typeof keyData==='string'?new TextEncoder().encode(keyData):keyData, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+                const k = await crypto.subtle.importKey(
+                    'raw',
+                    typeof keyData === 'string' ? new TextEncoder().encode(keyData) : keyData,
+                    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+                );
                 return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
             };
 
@@ -2489,27 +2493,26 @@ async function doLogin(){
             const fileHash = toHex(await sha256(fileBuffer));
 
             const now = new Date();
-            const ymd = now.toISOString().slice(0,10).replace(/-/g,'');
-            const amzDate = now.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'').slice(0,15)+'Z';
-            const region = 'us-east-005';
-            const svc = 's3';
-            const host = B2_ENDPOINT;
-            const ct = file.type || 'application/octet-stream';
+            const ymd     = now.toISOString().slice(0,10).replace(/-/g,'');
+            const amzDate = now.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'').slice(0,15) + 'Z';
+            const region  = 'us-east-005';
+            const svc     = 's3';
+            const host    = B2_ENDPOINT;
+            const ct      = file.type || 'application/octet-stream';
 
             const canonHeaders = `content-type:${ct}\nhost:${host}\nx-amz-content-sha256:${fileHash}\nx-amz-date:${amzDate}\n`;
-            const signedHdrs = 'content-type;host;x-amz-content-sha256;x-amz-date';
-            const canonReq = `PUT\n/${B2_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
-            const scope = `${ymd}/${region}/${svc}/aws4_request`;
-            const strToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${toHex(await sha256(canonReq))}`;
+            const signedHdrs   = 'content-type;host;x-amz-content-sha256;x-amz-date';
+            const canonReq     = `PUT\n/${B2_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
+            const scope        = `${ymd}/${region}/${svc}/aws4_request`;
+            const strToSign    = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${toHex(await sha256(canonReq))}`;
 
-            let sigKey = await hmac('AWS4'+B2_APP_KEY, ymd);
+            let sigKey = await hmac('AWS4' + B2_APP_KEY, ymd);
             sigKey = await hmac(sigKey, region);
             sigKey = await hmac(sigKey, svc);
             sigKey = await hmac(sigKey, 'aws4_request');
-            const sig = toHex(await hmac(sigKey, strToSign));
-
+            const sig  = toHex(await hmac(sigKey, strToSign));
             const auth = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
-            const url = `https://${B2_ENDPOINT}/${B2_BUCKET}/${key}`;
+            const url  = `https://${B2_ENDPOINT}/${B2_BUCKET}/${key}`;
 
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -2518,15 +2521,26 @@ async function doLogin(){
                 xhr.setRequestHeader('Content-Type', ct);
                 xhr.setRequestHeader('x-amz-date', amzDate);
                 xhr.setRequestHeader('x-amz-content-sha256', fileHash);
-                xhr.timeout = 7200000; // 2 soat (katta video uchun)
+                xhr.timeout = 7200000; // 2 soat
 
-                if(onProgress) xhr.upload.onprogress = e => { if(e.lengthComputable) onProgress(e.loaded, e.total); };
+                if (onProgress) {
+                    xhr.upload.onprogress = e => {
+                        if (e.lengthComputable) onProgress(e.loaded, e.total);
+                    };
+                }
                 xhr.onload = () => {
-                    if(xhr.status===200||xhr.status===204) resolve(`${B2_PUBLIC_URL}/${key}`);
-                    else reject(new Error(`B2 xatosi ${xhr.status}: ${xhr.responseText.slice(0,300)}`));
+                    if (xhr.status === 200 || xhr.status === 204) {
+                        resolve(`${B2_PUBLIC_URL}/${key}`);
+                    } else {
+                        // CORS yoki auth xatosi uchun batafsil xabar
+                        const msg = xhr.responseText
+                            ? xhr.responseText.slice(0, 300)
+                            : `HTTP ${xhr.status}`;
+                        reject(new Error(`B2 xatosi (${xhr.status}): ${msg}`));
+                    }
                 };
-                xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
-                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (2 soat)'));
+                xhr.onerror   = () => reject(new Error('Tarmoq xatosi — B2 CORS yoqilganmi? Bucket sozlamalarini tekshiring.'));
+                xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
                 xhr.send(fileBuffer);
             });
         }
@@ -4999,14 +5013,14 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '5%';
-            progTxt.textContent = '☁️ Backblaze B2 ga yuklanmoqda...';
+            progBar.style.width = '3%';
+            progTxt.textContent = '☁️ B2 ga yuklanmoqda...';
 
             try {
                 const imgUrl = await uploadToB2(file, (loaded, total) => {
-                    const pct = Math.max(5, Math.round((loaded / total) * 95));
+                    const pct = Math.max(3, Math.round((loaded / total) * 97));
                     progBar.style.width = pct + '%';
-                    progTxt.textContent = `☁️ ${pct}% yuklandi (${(loaded/1024/1024).toFixed(1)} MB)...`;
+                    progTxt.textContent = `☁️ ${pct}% — ${(loaded/1024/1024).toFixed(1)} MB yuklandi`;
                 });
 
                 progBar.style.width = '100%';
@@ -5014,7 +5028,7 @@ async function doLogin(){
                 document.getElementById('kPosterUrl').value = imgUrl;
                 document.getElementById('posterImg').src    = imgUrl;
                 document.getElementById('posterPreview').style.display = 'block';
-                setTimeout(() => { progWrap.style.display = 'none'; }, 600);
+                setTimeout(() => { progWrap.style.display = 'none'; }, 800);
                 showToast('✅ Poster B2 ga yuklandi!', 'success');
 
             } catch(err) {
@@ -5022,7 +5036,7 @@ async function doLogin(){
                 progBar.style.width = '0%';
                 nameEl.textContent = 'Rasmni tanlang';
                 nameEl.style.color = '#b46fff';
-                showToast('❌ ' + err.message, 'error');
+                showToast('❌ Poster xatosi: ' + err.message, 'error');
             }
         }
                 async function uploadPosterToRailway(input) { return uploadPosterToBot(input); }
