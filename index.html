@@ -1149,7 +1149,7 @@ async function doLogin(){
                     <span style="font-size:30px;">🖼️</span>
                     <div style="flex:1;">
                         <div id="posterPickName" style="font-size:14px;color:#b46fff;font-weight:900;">Rasmni tanlang</div>
-                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya → Backblaze B2 ga yuklanadi</div>
+                        <div style="font-size:11px;color:#555;margin-top:3px;">Galereya → Telegram bot orqali yuklanadi</div>
                     </div>
                     <input type="file" id="kPoster" accept="image/*" style="display:none;" onchange="uploadPosterToBot(this)">
                 </label>
@@ -5003,7 +5003,7 @@ async function doLogin(){
         // Rasm → Telegram botga sendPhoto → file_id → URL
         async function uploadPosterToBot(input) {
             const file = input.files[0];
-            if(!file) return;
+            if (!file) return;
 
             const nameEl   = document.getElementById('posterPickName');
             const progWrap = document.getElementById('posterUploadProgress');
@@ -5013,15 +5013,58 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '3%';
-            progTxt.textContent = '☁️ B2 ga yuklanmoqda...';
+            progBar.style.width = '10%';
+            progTxt.textContent = '📤 Telegram botga yuklanmoqda...';
 
             try {
-                const imgUrl = await uploadToB2(file, (loaded, total) => {
-                    const pct = Math.max(3, Math.round((loaded / total) * 97));
-                    progBar.style.width = pct + '%';
-                    progTxt.textContent = `☁️ ${pct}% — ${(loaded/1024/1024).toFixed(1)} MB yuklandi`;
+                // Bot token va admin ID ni olish
+                const token   = (await db.settings.get('token'))?.value;
+                const adminId = (await db.settings.get('admin_id'))?.value;
+
+                if (!token || !adminId) {
+                    throw new Error('Bot Token va Admin ID sozlanmagan! Admin paneldan kiriting.');
+                }
+
+                // Rasmni FormData orqali Telegram ga yuborish
+                const fd = new FormData();
+                fd.append('chat_id', adminId);
+                fd.append('photo', file);
+
+                progBar.style.width = '40%';
+                progTxt.textContent = '📤 Yuborilmoqda...';
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `https://api.telegram.org/bot${token}/sendPhoto`);
+
+                await new Promise((resolve, reject) => {
+                    xhr.upload.onprogress = e => {
+                        if (e.lengthComputable) {
+                            const p = 40 + Math.round((e.loaded / e.total) * 40);
+                            progBar.style.width = p + '%';
+                            progTxt.textContent = `📤 ${p}% yuklandi...`;
+                        }
+                    };
+                    xhr.onload = () => resolve();
+                    xhr.onerror = () => reject(new Error('Tarmoq xatosi'));
+                    xhr.send(fd);
                 });
+
+                const sendData = JSON.parse(xhr.responseText);
+                if (!sendData.ok) throw new Error('Bot xatosi: ' + (sendData.description || 'noma\u02bflum'));
+
+                progBar.style.width = '85%';
+                progTxt.textContent = '🔗 URL olinmoqda...';
+
+                // Eng katta rasmning file_id ni olamiz
+                const photos = sendData.result.photo;
+                const fileId = photos[photos.length - 1].file_id;
+
+                // file_id → file_path → doimiy URL
+                const gfRes  = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+                const gfData = await gfRes.json();
+                if (!gfData.ok) throw new Error('getFile xatosi');
+
+                const imgUrl = `https://api.telegram.org/file/bot${token}/${gfData.result.file_path}`;
 
                 progBar.style.width = '100%';
                 progTxt.textContent = '✅ Yuklandi!';
@@ -5029,14 +5072,14 @@ async function doLogin(){
                 document.getElementById('posterImg').src    = imgUrl;
                 document.getElementById('posterPreview').style.display = 'block';
                 setTimeout(() => { progWrap.style.display = 'none'; }, 800);
-                showToast('✅ Poster B2 ga yuklandi!', 'success');
+                showToast('✅ Poster yuklandi!', 'success');
 
-            } catch(err) {
+            } catch (err) {
                 progWrap.style.display = 'none';
                 progBar.style.width = '0%';
                 nameEl.textContent = 'Rasmni tanlang';
                 nameEl.style.color = '#b46fff';
-                showToast('❌ Poster xatosi: ' + err.message, 'error');
+                showToast('❌ ' + err.message, 'error');
             }
         }
                 async function uploadPosterToRailway(input) { return uploadPosterToBot(input); }
