@@ -2468,34 +2468,9 @@ async function doLogin(){
         const B2_APP_KEY    = 'K005NskO63g679mBabcgeGjnkSbTDnw';
         const B2_BUCKET     = 'Dramlar';
         const B2_REGION     = 'us-east-005';
-        const B2_S3_ENDPOINT = `https://s3.${B2_REGION}.backblazeb2.com`;
-        const B2_PUBLIC_URL  = `${B2_S3_ENDPOINT}/${B2_BUCKET}`;
+        const B2_PUBLIC_URL = `https://s3.${B2_REGION}.backblazeb2.com/${B2_BUCKET}`;
 
-        // ===== AWS Signature V4 (B2 S3-compatible) =====
-        async function sha256hex(data) {
-            const buf = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-            const hash = await crypto.subtle.digest('SHA-256', buf);
-            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
-        }
-        async function hmacSha256(key, data) {
-            const keyBuf = typeof key === 'string' ? new TextEncoder().encode(key) : key;
-            const dataBuf = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-            const k = await crypto.subtle.importKey('raw', keyBuf, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
-            const sig = await crypto.subtle.sign('HMAC', k, dataBuf);
-            return new Uint8Array(sig);
-        }
-        async function getSigningKey(secretKey, dateStamp, region, service) {
-            const kDate    = await hmacSha256('AWS4' + secretKey, dateStamp);
-            const kRegion  = await hmacSha256(kDate, region);
-            const kService = await hmacSha256(kRegion, service);
-            const kSign    = await hmacSha256(kService, 'aws4_request');
-            return kSign;
-        }
-        function toHex(buf) {
-            return Array.from(buf).map(b => b.toString(16).padStart(2,'0')).join('');
-        }
-
-        // B2 S3-compatible PUT yuklash (CORS to'liq qo'llab-quvvatlanadi)
+        // ===== B2 yuklash: Cloudflare Worker proxy orqali (CORS muammosi yo'q) =====
         async function uploadToB2(file, onProgress) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
@@ -2503,73 +2478,99 @@ async function doLogin(){
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
             const objKey   = `${folder}/${Date.now()}_${safeName}`;
             const fileType = file.type || (isVideo ? 'video/mp4' : 'application/octet-stream');
-
-            // Vaqt
-            const now = new Date();
-            const amzDate  = now.toISOString().replace(/[:-]|\.\d{3}/g,'').slice(0,15) + 'Z'; // 20240101T120000Z
-            const dateStamp = amzDate.slice(0,8); // 20240101
-
-            const host = `s3.${B2_REGION}.backblazeb2.com`;
-            const url  = `https://${host}/${B2_BUCKET}/${objKey}`;
-
-            // Fayl hash
             const fileBuffer = await file.arrayBuffer();
-            const payloadHash = await sha256hex(fileBuffer);
 
-            // Canonical headers (saralangan)
-            const canonHeaders = [
-                `content-type:${fileType}`,
-                `host:${host}`,
-                `x-amz-content-sha256:${payloadHash}`,
-                `x-amz-date:${amzDate}`,
-            ].join('\n') + '\n';
-            const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+            // Worker endpoint — u B2 ga proxy qiladi
+            const workerUrl = RAILWAY_BASE + '/b2upload';
 
-            // Canonical request
-            const canonReq = [
-                'PUT',
-                `/${B2_BUCKET}/${objKey}`,
-                '',
-                canonHeaders,
-                signedHeaders,
-                payloadHash
-            ].join('\n');
-
-            const credScope = `${dateStamp}/${B2_REGION}/s3/aws4_request`;
-            const strToSign = [
-                'AWS4-HMAC-SHA256',
-                amzDate,
-                credScope,
-                await sha256hex(canonReq)
-            ].join('\n');
-
-            const signingKey = await getSigningKey(B2_APP_KEY, dateStamp, B2_REGION, 's3');
-            const signature  = toHex(await hmacSha256(signingKey, strToSign));
-
-            const authHeader = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${credScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-            // XHR bilan yuklash (progress qo'llab-quvvatlanadi)
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('PUT', url);
-                xhr.setRequestHeader('Authorization',          authHeader);
-                xhr.setRequestHeader('Content-Type',           fileType);
-                xhr.setRequestHeader('x-amz-content-sha256',  payloadHash);
-                xhr.setRequestHeader('x-amz-date',            amzDate);
-                xhr.timeout = 7200000; // 2 soat
+                xhr.open('POST', workerUrl);
+                xhr.setRequestHeader('x-b2-key-id',   B2_KEY_ID);
+                xhr.setRequestHeader('x-b2-app-key',  B2_APP_KEY);
+                xhr.setRequestHeader('x-b2-bucket',   B2_BUCKET);
+                xhr.setRequestHeader('x-b2-region',   B2_REGION);
+                xhr.setRequestHeader('x-b2-key',      objKey);
+                xhr.setRequestHeader('x-file-type',   fileType);
+                xhr.timeout = 7200000;
 
                 xhr.upload.onprogress = e => {
                     if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
                 };
                 xhr.onload = () => {
-                    if (xhr.status === 200) {
-                        resolve(`${B2_PUBLIC_URL}/${objKey}`);
-                    } else {
-                        reject(new Error(`B2 xato ${xhr.status}: ${xhr.responseText.slice(0,200)}`));
+                    try {
+                        const res = JSON.parse(xhr.responseText);
+                        if (res.url) { resolve(res.url); }
+                        else { reject(new Error(res.error || 'Worker xato qaytardi')); }
+                    } catch(e) {
+                        if (xhr.status === 200) {
+                            // Worker to'g'ridan URL qaytarishi mumkin
+                            resolve(`${B2_PUBLIC_URL}/${objKey}`);
+                        } else {
+                            reject(new Error('Worker javob xatosi: ' + xhr.responseText.slice(0,150)));
+                        }
                     }
                 };
-                xhr.onerror   = () => reject(new Error('Tarmoq xatosi — internet aloqasini tekshiring'));
+                xhr.onerror   = () => {
+                    // Worker ishlamasa — to'g'ridan B2 S3 ga urinib ko'ramiz
+                    uploadToB2Direct(file, objKey, fileType, fileBuffer, onProgress).then(resolve).catch(reject);
+                };
                 xhr.ontimeout = () => reject(new Error('Yuklash vaqti tugadi (2 soat)'));
+                xhr.send(fileBuffer);
+            });
+        }
+
+        // To'g'ridan B2 S3 ga yuklash (Worker ishlamasa fallback)
+        async function uploadToB2Direct(file, objKey, fileType, fileBuffer, onProgress) {
+            // SHA-256 hisoblash
+            async function sha256hex(data) {
+                const buf = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+                const hash = await crypto.subtle.digest('SHA-256', buf);
+                return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+            }
+            async function hmacSha256(key, data) {
+                const kb = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+                const db = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+                const k = await crypto.subtle.importKey('raw', kb, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+                return new Uint8Array(await crypto.subtle.sign('HMAC', k, db));
+            }
+            function toHex(buf) { return Array.from(buf).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+
+            const now = new Date();
+            const amzDate   = now.toISOString().replace(/[:-]|\.\d{3}/g,'').slice(0,15) + 'Z';
+            const dateStamp = amzDate.slice(0,8);
+            const host      = `s3.${B2_REGION}.backblazeb2.com`;
+            const url       = `https://${host}/${B2_BUCKET}/${objKey}`;
+            const payloadHash = await sha256hex(fileBuffer);
+
+            const canonHeaders = `content-type:${fileType}\nhost:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+            const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+            const canonReq = `PUT\n/${B2_BUCKET}/${objKey}\n\n${canonHeaders}\n${signedHeaders}\n${payloadHash}`;
+            const credScope = `${dateStamp}/${B2_REGION}/s3/aws4_request`;
+            const strToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credScope}\n${await sha256hex(canonReq)}`;
+
+            const kDate    = await hmacSha256('AWS4' + B2_APP_KEY, dateStamp);
+            const kRegion  = await hmacSha256(kDate, B2_REGION);
+            const kService = await hmacSha256(kRegion, 's3');
+            const kSign    = await hmacSha256(kService, 'aws4_request');
+            const signature = toHex(await hmacSha256(kSign, strToSign));
+            const authHeader = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${credScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', url);
+                xhr.setRequestHeader('Authorization',         authHeader);
+                xhr.setRequestHeader('Content-Type',          fileType);
+                xhr.setRequestHeader('x-amz-content-sha256', payloadHash);
+                xhr.setRequestHeader('x-amz-date',           amzDate);
+                xhr.timeout = 7200000;
+                xhr.upload.onprogress = e => { if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total); };
+                xhr.onload = () => {
+                    if (xhr.status === 200) resolve(`${B2_PUBLIC_URL}/${objKey}`);
+                    else reject(new Error(`B2 xato ${xhr.status}: ${xhr.responseText.slice(0,200)}`));
+                };
+                xhr.onerror   = () => reject(new Error('B2 ulanish xatosi. Backblaze panelidagi CORS sozlamasini tekshiring.'));
+                xhr.ontimeout = () => reject(new Error('Yuklash vaqti tugadi'));
                 xhr.send(fileBuffer);
             });
         }
