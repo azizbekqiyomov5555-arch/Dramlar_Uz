@@ -1173,8 +1173,8 @@ async function doLogin(){
                 <!-- Video qismlar URL -->
                 <div style="font-size:12px;color:#888;font-weight:700;margin-bottom:4px;letter-spacing:1px;">🎥 VIDEO QISMLAR *</div>
                 <div style="font-size:11px;color:#00ff73;margin-bottom:8px;padding:10px 12px;background:#0d1f14;border-radius:10px;border:1px solid rgba(0,255,115,0.2);">
-                    🔗 YouTube yoki Google Drive URL kiriting<br>
-                    <span style="color:#888;font-size:10px;">Masalan: https://youtu.be/xxx  yoki  https://drive.google.com/file/d/xxx</span>
+                    ☁️ Video faylni <b>Backblaze B2</b> ga to'g'ridan yuklash yoki URL kiriting<br>
+                    <span style="color:#888;font-size:10px;">Har qanday hajmdagi video qabul qilinadi. YouTube/Drive URL ham ishlaydi.</span>
                 </div>
                 <div id="vFields"></div>
                 <button class="btn-adm" style="background:#1a1a1a;color:var(--accent);border:1.5px dashed #333;margin-bottom:14px;" onclick="addVField()">＋ Qism qo'shish</button>
@@ -2463,22 +2463,21 @@ async function doLogin(){
         const RAILWAY_API   = window.RAILWAY_API_URL   || 'https://dramlaruz-production-1d04.up.railway.app';
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
-        // ===== CLOUDFLARE R2 SOZLAMALARI =====
-        const CF_ACCOUNT_ID  = 'bcca12c7edccf2a1633c58ff9e4d202d';
-        const CF_ACCESS_KEY  = '2519178aed5d28a4f4d81922d2a14d9d';
-        const CF_SECRET_KEY  = 'a827f95cd5931c3bd532b6f35e41d7e4decccea3c';
-        const CF_BUCKET      = 'kino-drama';
-        const CF_PUBLIC_URL  = 'https://pub-271e3540fa7f4b0a85bfcf9bb56b3ae2.r2.dev';
-        const CF_ENDPOINT    = `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+        // ===== BACKBLAZE B2 SOZLAMALARI =====
+        const B2_KEY_ID      = '00537492131e4f70000000002';
+        const B2_APP_KEY     = 'K005NskO63g679mBabcgeGjnkSbTDnw';
+        const B2_BUCKET      = 'Dramlar';
+        const B2_ENDPOINT    = 's3.us-east-005.backblazeb2.com';
+        const B2_PUBLIC_URL  = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
 
-        async function uploadToR2(file, onProgress) {
+        async function uploadToB2(file, onProgress) {
             const ext = file.name.split('.').pop().toLowerCase();
             const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
             const folder = isVideo ? 'videos' : 'posters';
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
             const key = `${folder}/${Date.now()}_${safeName}`;
 
-            // Yordamchi funksiyalar
+            // Yordamchi funksiyalar (AWS S3 Signature v4 — B2 S3-compatible)
             const toHex = buf => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
             const sha256 = async data => crypto.subtle.digest('SHA-256', typeof data==='string'?new TextEncoder().encode(data):data);
             const hmac = async (keyData, msg) => {
@@ -2486,33 +2485,31 @@ async function doLogin(){
                 return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
             };
 
-            // Fayl buffer va hash
             const fileBuffer = await file.arrayBuffer();
             const fileHash = toHex(await sha256(fileBuffer));
 
-            // AWS Signature v4
             const now = new Date();
             const ymd = now.toISOString().slice(0,10).replace(/-/g,'');
             const amzDate = now.toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'').slice(0,15)+'Z';
-            const region = 'auto';
+            const region = 'us-east-005';
             const svc = 's3';
-            const host = `${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+            const host = B2_ENDPOINT;
             const ct = file.type || 'application/octet-stream';
 
             const canonHeaders = `content-type:${ct}\nhost:${host}\nx-amz-content-sha256:${fileHash}\nx-amz-date:${amzDate}\n`;
             const signedHdrs = 'content-type;host;x-amz-content-sha256;x-amz-date';
-            const canonReq = `PUT\n/${CF_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
+            const canonReq = `PUT\n/${B2_BUCKET}/${key}\n\n${canonHeaders}\n${signedHdrs}\n${fileHash}`;
             const scope = `${ymd}/${region}/${svc}/aws4_request`;
             const strToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${toHex(await sha256(canonReq))}`;
 
-            let sigKey = await hmac('AWS4'+CF_SECRET_KEY, ymd);
+            let sigKey = await hmac('AWS4'+B2_APP_KEY, ymd);
             sigKey = await hmac(sigKey, region);
             sigKey = await hmac(sigKey, svc);
             sigKey = await hmac(sigKey, 'aws4_request');
             const sig = toHex(await hmac(sigKey, strToSign));
 
-            const auth = `AWS4-HMAC-SHA256 Credential=${CF_ACCESS_KEY}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
-            const url = `${CF_ENDPOINT}/${CF_BUCKET}/${key}`;
+            const auth = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${scope},SignedHeaders=${signedHdrs},Signature=${sig}`;
+            const url = `https://${B2_ENDPOINT}/${B2_BUCKET}/${key}`;
 
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -2521,19 +2518,21 @@ async function doLogin(){
                 xhr.setRequestHeader('Content-Type', ct);
                 xhr.setRequestHeader('x-amz-date', amzDate);
                 xhr.setRequestHeader('x-amz-content-sha256', fileHash);
-                xhr.timeout = 3600000; // 1 soat
+                xhr.timeout = 7200000; // 2 soat (katta video uchun)
 
                 if(onProgress) xhr.upload.onprogress = e => { if(e.lengthComputable) onProgress(e.loaded, e.total); };
                 xhr.onload = () => {
-                    if(xhr.status===200||xhr.status===204) resolve(`${CF_PUBLIC_URL}/${key}`);
-                    else reject(new Error(`R2 xatosi ${xhr.status}: ${xhr.responseText.slice(0,200)}`));
+                    if(xhr.status===200||xhr.status===204) resolve(`${B2_PUBLIC_URL}/${key}`);
+                    else reject(new Error(`B2 xatosi ${xhr.status}: ${xhr.responseText.slice(0,300)}`));
                 };
                 xhr.onerror   = () => reject(new Error('Tarmoq xatosi'));
-                xhr.ontimeout = () => reject(new Error('Vaqt tugadi'));
+                xhr.ontimeout = () => reject(new Error('Vaqt tugadi (2 soat)'));
                 xhr.send(fileBuffer);
             });
         }
-        // ===== R2 SOZLAMALARI TUGADI =====
+        // Eski nom bilan ham ishlashi uchun alias
+        const uploadToR2 = uploadToB2;
+        // ===== B2 SOZLAMALARI TUGADI =====
 
         let cachedMovies = [];
         let moviesCacheTime = 0;
@@ -5000,60 +4999,23 @@ async function doLogin(){
             nameEl.textContent = file.name;
             nameEl.style.color = '#fff';
             progWrap.style.display = 'block';
-            progBar.style.width = '10%';
-            progTxt.textContent = 'Telegram botga yuklanmoqda...';
+            progBar.style.width = '5%';
+            progTxt.textContent = '☁️ Backblaze B2 ga yuklanmoqda...';
 
             try {
-                // Bot token va admin ID ni olish
-                const token   = (await db.settings.get('token'))?.value;
-                const adminId = (await db.settings.get('admin_id'))?.value;
-
-                if(!token || !adminId) {
-                    throw new Error('Bot token yoki Admin ID sozlanmagan! Admin paneldan sozlang.');
-                }
-
-                progBar.style.width = '30%';
-
-                // Rasmni Telegram botga yuborish
-                const formData = new FormData();
-                formData.append('chat_id', adminId);
-                formData.append('photo', file);
-
-                progBar.style.width = '50%';
-                progTxt.textContent = 'Bot javob kutilmoqda...';
-
-                const sendRes = await fetch(
-                    `https://api.telegram.org/bot${token}/sendPhoto`,
-                    { method: 'POST', body: formData }
-                );
-                const sendData = await sendRes.json();
-
-                if(!sendData.ok) throw new Error('Bot xatosi: ' + (sendData.description || 'nomaʼlum'));
-
-                progBar.style.width = '75%';
-                progTxt.textContent = 'URL olinmoqda...';
-
-                // Eng katta o'lchamdagi rasmni olish
-                const photos = sendData.result.photo;
-                const biggest = photos[photos.length - 1];
-                const fileId = biggest.file_id;
-
-                // file_id → file_path → URL
-                const fileRes = await fetch(
-                    `https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`
-                );
-                const fileData = await fileRes.json();
-
-                if(!fileData.ok) throw new Error('getFile xatosi');
-
-                const imgUrl = `https://api.telegram.org/file/bot${token}/${fileData.result.file_path}`;
+                const imgUrl = await uploadToB2(file, (loaded, total) => {
+                    const pct = Math.max(5, Math.round((loaded / total) * 95));
+                    progBar.style.width = pct + '%';
+                    progTxt.textContent = `☁️ ${pct}% yuklandi (${(loaded/1024/1024).toFixed(1)} MB)...`;
+                });
 
                 progBar.style.width = '100%';
+                progTxt.textContent = '✅ Yuklandi!';
                 document.getElementById('kPosterUrl').value = imgUrl;
                 document.getElementById('posterImg').src    = imgUrl;
                 document.getElementById('posterPreview').style.display = 'block';
-                progWrap.style.display = 'none';
-                showToast('✅ Poster yuklandi!', 'success');
+                setTimeout(() => { progWrap.style.display = 'none'; }, 600);
+                showToast('✅ Poster B2 ga yuklandi!', 'success');
 
             } catch(err) {
                 progWrap.style.display = 'none';
@@ -5063,8 +5025,7 @@ async function doLogin(){
                 showToast('❌ ' + err.message, 'error');
             }
         }
-
-        async function uploadPosterToRailway(input) { return uploadPosterToBot(input); }
+                async function uploadPosterToRailway(input) { return uploadPosterToBot(input); }
         async function uploadPosterToTelegram(input) { return uploadPosterToBot(input); }
 
         // Mavjud kinoning posterini almashtirish
@@ -5127,7 +5088,35 @@ async function doLogin(){
                         <button onclick="document.getElementById('vf${n}').remove();"
                             style="background:#2a0000;color:#ff453a;border:1px solid #500;padding:6px 12px;border-radius:9px;font-weight:900;font-size:13px;">✕</button>
                     </div>
-                    <div style="font-size:11px;color:#888;margin-bottom:6px;">🔗 YouTube yoki Google Drive URL</div>
+
+                    <!-- B2 ga to'g'ridan yuklash -->
+                    <label style="display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#0d1f14,#111);border:2px dashed rgba(0,255,115,0.35);border-radius:12px;padding:12px 14px;cursor:pointer;margin-bottom:10px;"
+                        onmouseover="this.style.borderColor='rgba(0,255,115,0.8)'"
+                        onmouseout="this.style.borderColor='rgba(0,255,115,0.35)'">
+                        <span style="font-size:24px;">☁️</span>
+                        <div style="flex:1;">
+                            <div id="vfName${n}" style="font-size:13px;color:var(--accent);font-weight:900;">Video faylni tanlang (B2 ga yuklanadi)</div>
+                            <div style="font-size:10px;color:#555;margin-top:2px;">MP4, MKV, AVI — istalgan hajm</div>
+                        </div>
+                        <input type="file" accept="video/*" style="display:none;" onchange="uploadVideoToTelegram(this,${n})">
+                    </label>
+
+                    <!-- Progress bar -->
+                    <div id="vfProg${n}" style="display:none;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <span id="vfProgTxt${n}" style="font-size:11px;color:#888;">Yuklanmoqda...</span>
+                            <span id="vfPct${n}" style="font-size:11px;color:var(--accent);font-weight:900;">0%</span>
+                        </div>
+                        <div style="background:#222;border-radius:6px;height:6px;overflow:hidden;">
+                            <div id="vfBar${n}" style="height:100%;background:linear-gradient(90deg,#00ff73,#00cc5c);border-radius:6px;width:0%;transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Done -->
+                    <div id="vfDone${n}" style="display:none;font-size:11px;color:#00ff73;margin-bottom:8px;padding:6px 8px;background:#0a1f14;border-radius:8px;border:1px solid rgba(0,255,115,0.2);"></div>
+
+                    <!-- Yoki URL -->
+                    <div style="font-size:11px;color:#555;margin-bottom:5px;text-align:center;">— yoki URL kiriting —</div>
                     <input type="text" id="vfUrl${n}" placeholder="https://youtu.be/xxx  yoki  https://drive.google.com/..."
                         style="margin-bottom:4px; font-size:13px; word-break:break-all;" oninput="onVfUrlInput(${n})">
                 </div>`;
@@ -5223,7 +5212,7 @@ async function doLogin(){
             doneEl.style.display = 'none';
             bar.style.width = '1%';
             pct.textContent = '1%';
-            txt.textContent = `R2 ga yuklanmoqda (${mb} MB)...`;
+            txt.textContent = `☁️ B2 ga yuklanmoqda (${mb} MB)...`;
 
             try {
                 const videoUrl = await uploadToR2(file, (loaded, total) => {
@@ -5242,8 +5231,8 @@ async function doLogin(){
                 setTimeout(() => {
                     progEl.style.display = 'none';
                     doneEl.style.display = 'block';
-                    if(doneTxt) doneTxt.textContent = `✅ ${file.name} (${mb} MB) — R2 da saqlandi!`;
-                    showToast(`✅ ${n}-qism R2 ga yuklandi!`, 'success');
+                    if(doneTxt) doneTxt.textContent = `✅ ${file.name} (${mb} MB) — B2 da saqlandi!`;
+                    showToast(`✅ ${n}-qism B2 ga yuklandi!`, 'success');
                 }, 400);
 
             } catch(err) {
