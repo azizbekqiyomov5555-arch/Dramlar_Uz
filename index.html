@@ -2464,112 +2464,114 @@ async function doLogin(){
         const ADMIN_TOKEN_H = window.RAILWAY_ADMIN_TOKEN || 'kino_admin_2025_secret';
 
         // ===== BACKBLAZE B2 SOZLAMALARI =====
-        const B2_KEY_ID   = '00537492131e4f70000000002';
-        const B2_APP_KEY  = 'K005NskO63g679mBabcgeGjnkSbTDnw';
-        const B2_BUCKET   = 'Dramlar';
-        const B2_ENDPOINT = 's3.us-east-005.backblazeb2.com';
-        const B2_PUBLIC_URL = `https://${B2_ENDPOINT}/${B2_BUCKET}`;
+        const B2_KEY_ID     = '00537492131e4f70000000002';
+        const B2_APP_KEY    = 'K005NskO63g679mBabcgeGjnkSbTDnw';
+        const B2_BUCKET     = 'Dramlar';
+        const B2_REGION     = 'us-east-005';
+        const B2_S3_ENDPOINT = `https://s3.${B2_REGION}.backblazeb2.com`;
+        const B2_PUBLIC_URL  = `${B2_S3_ENDPOINT}/${B2_BUCKET}`;
 
-        // XHR orqali JSON so'rov (CORS uchun)
-        function xhrJson(method, url, headers, body) {
-            return new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open(method, url);
-                if (headers) Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
-                xhr.timeout = 30000;
-                xhr.onload = () => {
-                    try { resolve(JSON.parse(xhr.responseText)); }
-                    catch(e) { reject(new Error('JSON parse xatosi: ' + xhr.responseText.slice(0,200))); }
-                };
-                xhr.onerror = () => reject(new Error('Tarmoq xatosi (CORS yoki internet yo\'q)'));
-                xhr.ontimeout = () => reject(new Error('So\'rov vaqti tugadi'));
-                xhr.send(body ? (typeof body === 'string' ? body : JSON.stringify(body)) : null);
-            });
+        // ===== AWS Signature V4 (B2 S3-compatible) =====
+        async function sha256hex(data) {
+            const buf = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+            const hash = await crypto.subtle.digest('SHA-256', buf);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+        }
+        async function hmacSha256(key, data) {
+            const keyBuf = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+            const dataBuf = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+            const k = await crypto.subtle.importKey('raw', keyBuf, {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+            const sig = await crypto.subtle.sign('HMAC', k, dataBuf);
+            return new Uint8Array(sig);
+        }
+        async function getSigningKey(secretKey, dateStamp, region, service) {
+            const kDate    = await hmacSha256('AWS4' + secretKey, dateStamp);
+            const kRegion  = await hmacSha256(kDate, region);
+            const kService = await hmacSha256(kRegion, service);
+            const kSign    = await hmacSha256(kService, 'aws4_request');
+            return kSign;
+        }
+        function toHex(buf) {
+            return Array.from(buf).map(b => b.toString(16).padStart(2,'0')).join('');
         }
 
-        // B2 Native API orqali yuklash
-        // 1) b2_authorize_account → authToken + apiUrl + downloadUrl
-        // 2) b2_get_upload_url → uploadUrl + uploadAuthToken
-        // 3) b2_upload_file → fayl yuklash
+        // B2 S3-compatible PUT yuklash (CORS to'liq qo'llab-quvvatlanadi)
         async function uploadToB2(file, onProgress) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             const isVideo = file.type.startsWith('video/') || ['mp4','mkv','avi','mov','webm'].includes(ext);
-            const folder  = isVideo ? 'videos' : 'posters';
+            const folder   = isVideo ? 'videos' : 'posters';
             const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-            const fileName = `${folder}/${Date.now()}_${safeName}`;
+            const objKey   = `${folder}/${Date.now()}_${safeName}`;
+            const fileType = file.type || (isVideo ? 'video/mp4' : 'application/octet-stream');
 
-            // Step 1: Authorize
-            const authStr = btoa(`${B2_KEY_ID}:${B2_APP_KEY}`);
-            let authData;
-            try {
-                authData = await xhrJson('GET', 'https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
-                    'Authorization': 'Basic ' + authStr
-                }, null);
-            } catch(e) {
-                throw new Error('B2 ulanish xatosi: ' + e.message);
-            }
-            if (!authData.authorizationToken) {
-                throw new Error('B2 auth muvaffaqiyatsiz: ' + JSON.stringify(authData).slice(0,150));
-            }
-            const { authorizationToken, apiUrl } = authData;
+            // Vaqt
+            const now = new Date();
+            const amzDate  = now.toISOString().replace(/[:-]|\.\d{3}/g,'').slice(0,15) + 'Z'; // 20240101T120000Z
+            const dateStamp = amzDate.slice(0,8); // 20240101
 
-            // Step 2: Bucket ID olish
-            let listData;
-            try {
-                listData = await xhrJson('POST', apiUrl + '/b2api/v2/b2_list_buckets',
-                    { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
-                    JSON.stringify({ accountId: authData.accountId, bucketName: B2_BUCKET })
-                );
-            } catch(e) {
-                throw new Error('Bucket ro\'yxati xatosi: ' + e.message);
-            }
-            const bucket = listData.buckets && listData.buckets[0];
-            if (!bucket) throw new Error('Bucket topilmadi: ' + B2_BUCKET);
-            const bucketId = bucket.bucketId;
+            const host = `s3.${B2_REGION}.backblazeb2.com`;
+            const url  = `https://${host}/${B2_BUCKET}/${objKey}`;
 
-            // Step 3: Upload URL olish
-            let upUrlData;
-            try {
-                upUrlData = await xhrJson('POST', apiUrl + '/b2api/v2/b2_get_upload_url',
-                    { 'Authorization': authorizationToken, 'Content-Type': 'application/json' },
-                    JSON.stringify({ bucketId })
-                );
-            } catch(e) {
-                throw new Error('Upload URL xatosi: ' + e.message);
-            }
-            const { uploadUrl, authorizationToken: uploadToken } = upUrlData;
-
-            // Step 4: SHA-1 hisoblash va yuklash
+            // Fayl hash
             const fileBuffer = await file.arrayBuffer();
-            const hashBuffer = await crypto.subtle.digest('SHA-1', fileBuffer);
-            const sha1 = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,'0')).join('');
+            const payloadHash = await sha256hex(fileBuffer);
 
-            const uploadRes = await new Promise((resolve, reject) => {
+            // Canonical headers (saralangan)
+            const canonHeaders = [
+                `content-type:${fileType}`,
+                `host:${host}`,
+                `x-amz-content-sha256:${payloadHash}`,
+                `x-amz-date:${amzDate}`,
+            ].join('\n') + '\n';
+            const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
+
+            // Canonical request
+            const canonReq = [
+                'PUT',
+                `/${B2_BUCKET}/${objKey}`,
+                '',
+                canonHeaders,
+                signedHeaders,
+                payloadHash
+            ].join('\n');
+
+            const credScope = `${dateStamp}/${B2_REGION}/s3/aws4_request`;
+            const strToSign = [
+                'AWS4-HMAC-SHA256',
+                amzDate,
+                credScope,
+                await sha256hex(canonReq)
+            ].join('\n');
+
+            const signingKey = await getSigningKey(B2_APP_KEY, dateStamp, B2_REGION, 's3');
+            const signature  = toHex(await hmacSha256(signingKey, strToSign));
+
+            const authHeader = `AWS4-HMAC-SHA256 Credential=${B2_KEY_ID}/${credScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+            // XHR bilan yuklash (progress qo'llab-quvvatlanadi)
+            return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', uploadUrl);
-                xhr.setRequestHeader('Authorization', uploadToken);
-                xhr.setRequestHeader('X-Bz-File-Name', encodeURIComponent(fileName));
-                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-                xhr.setRequestHeader('X-Bz-Content-Sha1', sha1);
+                xhr.open('PUT', url);
+                xhr.setRequestHeader('Authorization',          authHeader);
+                xhr.setRequestHeader('Content-Type',           fileType);
+                xhr.setRequestHeader('x-amz-content-sha256',  payloadHash);
+                xhr.setRequestHeader('x-amz-date',            amzDate);
                 xhr.timeout = 7200000; // 2 soat
 
                 xhr.upload.onprogress = e => {
                     if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
                 };
                 xhr.onload = () => {
-                    try { resolve(JSON.parse(xhr.responseText)); }
-                    catch(e) { reject(new Error('Yuklash javob xatosi: ' + xhr.responseText.slice(0,100))); }
+                    if (xhr.status === 200) {
+                        resolve(`${B2_PUBLIC_URL}/${objKey}`);
+                    } else {
+                        reject(new Error(`B2 xato ${xhr.status}: ${xhr.responseText.slice(0,200)}`));
+                    }
                 };
-                xhr.onerror   = () => reject(new Error('Yuklash tarmoq xatosi — internet yoki CORS muammosi'));
+                xhr.onerror   = () => reject(new Error('Tarmoq xatosi — internet aloqasini tekshiring'));
                 xhr.ontimeout = () => reject(new Error('Yuklash vaqti tugadi (2 soat)'));
                 xhr.send(fileBuffer);
             });
-
-            if (uploadRes.fileId) {
-                return `${authData.downloadUrl}/file/${B2_BUCKET}/${fileName}`;
-            } else {
-                throw new Error('B2 yuklash xatosi: ' + JSON.stringify(uploadRes).slice(0,200));
-            }
         }
 
         // Alias
